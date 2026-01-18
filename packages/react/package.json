@@ -1,0 +1,39 @@
+{
+  "name": "@autoship/react",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "@supabase/supabase-js": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "react": "^18.3.0",
+    "typescript": "^5.8.0",
+    "@supabase/supabase-js": "^2.90.1"
+  },
+  "keywords": [
+    "autoship",
+    "react",
+    "feedback",
+    "claude",
+    "ai",
+    "supabase"
+  ],
+  "license": "MIT"
+}

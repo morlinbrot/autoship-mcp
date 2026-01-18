@@ -20,11 +20,13 @@ CREATE TABLE IF NOT EXISTS agent_todos (
     title TEXT NOT NULL,
     description TEXT NOT NULL,
     priority INTEGER DEFAULT 0,  -- Higher = more urgent
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'complete', 'failed', 'blocked')),
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'complete', 'failed', 'blocked', 'needs_info')),
     branch_name TEXT,
     pr_url TEXT,
     notes TEXT,
     error_message TEXT,
+    submitted_by TEXT,  -- User ID who submitted the task (for React components)
+    questions JSONB DEFAULT '[]',  -- Inline Q&A for React components
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     started_at TIMESTAMPTZ,
@@ -33,6 +35,9 @@ CREATE TABLE IF NOT EXISTS agent_todos (
 
 -- Index for finding pending todos quickly
 CREATE INDEX idx_agent_todos_status_priority ON agent_todos(status, priority DESC);
+
+-- Index for user's tasks (React components)
+CREATE INDEX idx_agent_todos_submitted_by ON agent_todos(submitted_by);
 
 -- =============================================================================
 -- Category assignments (many-to-many relationship)
@@ -100,3 +105,22 @@ CREATE POLICY "Service role has full access to todo_category_assignments"
 
 CREATE POLICY "Service role has full access to todo_questions"
     ON todo_questions FOR ALL USING (true) WITH CHECK (true);
+
+-- =============================================================================
+-- Policies for React components (using anon key)
+-- =============================================================================
+
+-- Users can view their own tasks or tasks without a submitter
+CREATE POLICY "Users can view their own tasks"
+    ON agent_todos FOR SELECT
+    USING (submitted_by IS NULL OR submitted_by = coalesce(auth.uid()::text, submitted_by));
+
+-- Anyone can insert tasks
+CREATE POLICY "Anyone can insert tasks"
+    ON agent_todos FOR INSERT
+    WITH CHECK (true);
+
+-- Users can update their own tasks (for answering questions)
+CREATE POLICY "Users can update their own tasks"
+    ON agent_todos FOR UPDATE
+    USING (submitted_by IS NULL OR submitted_by = coalesce(auth.uid()::text, submitted_by));

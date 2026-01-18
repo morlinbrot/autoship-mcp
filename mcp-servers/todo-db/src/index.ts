@@ -25,15 +25,25 @@ interface AgentTodo {
   title: string;
   description: string;
   priority: number;
-  status: "pending" | "in_progress" | "complete" | "failed" | "blocked";
+  status: "pending" | "in_progress" | "complete" | "failed" | "blocked" | "needs_info";
   branch_name: string | null;
   pr_url: string | null;
   notes: string | null;
   error_message: string | null;
+  submitted_by: string | null;
+  questions: InlineQuestion[] | null;
   created_at: string;
   updated_at: string;
   started_at: string | null;
   completed_at: string | null;
+}
+
+interface InlineQuestion {
+  id: string;
+  question: string;
+  answer: string | null;
+  asked_at: string;
+  answered_at: string | null;
 }
 
 interface TodoCategory {
@@ -637,6 +647,172 @@ server.tool(
       return {
         content: [
           { type: "text" as const, text: `Todo ${todo_id} is not blocked.` },
+        ],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        { type: "text" as const, text: `Todo "${data.title}" moved back to pending.` },
+      ],
+    };
+  }
+);
+
+// =============================================================================
+// Inline Question Tools (for React components using JSONB questions column)
+// =============================================================================
+
+// Tool: Ask inline question (stores in JSONB column, for React UI)
+server.tool(
+  "ask_inline_question",
+  "Ask a clarifying question that will be shown in the React UI. The user will answer via the app.",
+  {
+    todo_id: z.string().describe("The todo ID"),
+    question: z.string().describe("The question to ask the user"),
+  },
+  async ({ todo_id, question }) => {
+    // Get the current todo
+    const { data: todo, error: fetchError } = await supabase
+      .from("agent_todos")
+      .select("questions")
+      .eq("id", todo_id)
+      .single();
+
+    if (fetchError) {
+      return {
+        content: [
+          { type: "text" as const, text: `Error fetching todo: ${fetchError.message}` },
+        ],
+        isError: true,
+      };
+    }
+
+    const questionId = `q_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const newQuestion: InlineQuestion = {
+      id: questionId,
+      question,
+      answer: null,
+      asked_at: new Date().toISOString(),
+      answered_at: null,
+    };
+
+    const existingQuestions = (todo.questions as InlineQuestion[]) || [];
+    const updatedQuestions = [...existingQuestions, newQuestion];
+
+    const { error: updateError } = await supabase
+      .from("agent_todos")
+      .update({
+        questions: updatedQuestions,
+        status: "needs_info",
+      })
+      .eq("id", todo_id);
+
+    if (updateError) {
+      return {
+        content: [
+          { type: "text" as const, text: `Error asking question: ${updateError.message}` },
+        ],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Question asked. Todo marked as 'needs_info'. The user will be prompted to answer: "${question}"`,
+        },
+      ],
+    };
+  }
+);
+
+// Tool: Check inline answers
+server.tool(
+  "check_inline_answers",
+  "Check if a todo has any unanswered inline questions or newly provided answers.",
+  {
+    todo_id: z.string().describe("The todo ID"),
+  },
+  async ({ todo_id }) => {
+    const { data, error } = await supabase
+      .from("agent_todos")
+      .select("questions, status")
+      .eq("id", todo_id)
+      .single();
+
+    if (error) {
+      return {
+        content: [
+          { type: "text" as const, text: `Error fetching todo: ${error.message}` },
+        ],
+        isError: true,
+      };
+    }
+
+    const questions = (data.questions as InlineQuestion[]) || [];
+
+    if (questions.length === 0) {
+      return {
+        content: [
+          { type: "text" as const, text: "No inline questions have been asked for this todo." },
+        ],
+      };
+    }
+
+    const unanswered = questions.filter((q) => !q.answer);
+    const answered = questions.filter((q) => q.answer);
+
+    let response = `Inline questions for this todo:\n\n`;
+
+    for (const q of questions) {
+      response += `Q: ${q.question}\n`;
+      response += q.answer ? `A: ${q.answer}\n\n` : `A: (awaiting answer)\n\n`;
+    }
+
+    response += `Status: ${unanswered.length} unanswered, ${answered.length} answered`;
+
+    if (unanswered.length === 0 && answered.length > 0) {
+      response += "\n\nAll questions have been answered! You can proceed with the task.";
+    }
+
+    return {
+      content: [{ type: "text" as const, text: response }],
+    };
+  }
+);
+
+// Tool: Resume todo after inline answers
+server.tool(
+  "resume_todo",
+  "Move a 'needs_info' todo back to pending after inline questions are answered",
+  {
+    todo_id: z.string().describe("The todo ID"),
+  },
+  async ({ todo_id }) => {
+    const { data, error } = await supabase
+      .from("agent_todos")
+      .update({ status: "pending" })
+      .eq("id", todo_id)
+      .eq("status", "needs_info")
+      .select()
+      .single();
+
+    if (error) {
+      return {
+        content: [
+          { type: "text" as const, text: `Error resuming todo: ${error.message}` },
+        ],
+        isError: true,
+      };
+    }
+
+    if (!data) {
+      return {
+        content: [
+          { type: "text" as const, text: `Todo ${todo_id} is not in 'needs_info' status.` },
         ],
         isError: true,
       };
