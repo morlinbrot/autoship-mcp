@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "todo-db": {
+    "autoship-mcp": {
       "command": "node",
-      "args": ["./mcp-servers/todo-db/dist/index.js"],
+      "args": ["./mcp-servers/autoship-mcp/dist/index.js"],
       "env": {
         "SUPABASE_URL": "${SUPABASE_URL}",
         "SUPABASE_SERVICE_KEY": "${SUPABASE_SERVICE_KEY}"

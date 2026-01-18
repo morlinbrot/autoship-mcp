@@ -4,8 +4,8 @@
   "description": "Autonomous Claude agent with Supabase todo database via MCP",
   "private": true,
   "scripts": {
-    "build:mcp": "cd mcp-servers/todo-db && npm run build",
-    "start:mcp": "cd mcp-servers/todo-db && npm start"
+    "build:mcp": "cd mcp-servers/autoship-mcp && npm run build",
+    "start:mcp": "cd mcp-servers/autoship-mcp && npm start"
   },
   "keywords": [
     "claude",

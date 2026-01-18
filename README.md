@@ -17,7 +17,7 @@ A drop-in autonomous coding agent that reads tasks from a Supabase database and 
 Copy these files/folders into your project:
 
 ```
-mcp-servers/todo-db/       # The MCP server
+mcp-servers/autoship-mcp/  # The MCP server
 .mcp.json                  # MCP configuration
 .github/workflows/claude-agent.yml  # GitHub Actions workflow
 ```
@@ -41,11 +41,11 @@ supabase db push
 
 Go to your repository's Settings > Secrets and variables > Actions, and add:
 
-| Secret | Description |
-|--------|-------------|
-| `ANTHROPIC_API_KEY` | Your Anthropic API key |
-| `SUPABASE_URL` | Your Supabase project URL (e.g., `https://xxx.supabase.co`) |
-| `SUPABASE_SERVICE_KEY` | Supabase service role key (not the anon key) |
+| Secret                 | Description                                                 |
+| ---------------------- | ----------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`    | Your Anthropic API key                                      |
+| `SUPABASE_URL`         | Your Supabase project URL (e.g., `https://xxx.supabase.co`) |
+| `SUPABASE_SERVICE_KEY` | Supabase service role key (not the anon key)                |
 
 ### 4. Install MCP Server Dependencies
 
@@ -54,7 +54,7 @@ Add this to your project's root `package.json` scripts (or create one):
 ```json
 {
   "scripts": {
-    "build:mcp": "cd mcp-servers/todo-db && npm install && npm run build"
+    "build:mcp": "cd mcp-servers/autoship-mcp && npm install && npm run build"
   }
 }
 ```
@@ -73,7 +73,7 @@ export SUPABASE_URL="https://your-project.supabase.co"
 export SUPABASE_SERVICE_KEY="your-service-key"
 
 # Test the MCP tools
-claude "Use the todo-db tools to list pending todos"
+claude "Use the autoship-mcp tools to list pending todos"
 ```
 
 ## Adding Tasks
@@ -93,16 +93,16 @@ INSERT INTO agent_todos (id, title, description, priority) VALUES
 ### Via API (from your app)
 
 ```typescript
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-await supabase.from('agent_todos').insert({
+await supabase.from("agent_todos").insert({
   id: `todo_${Date.now()}`,
-  title: 'Implement feature X',
-  description: 'Detailed description of what needs to be done...',
+  title: "Implement feature X",
+  description: "Detailed description of what needs to be done...",
   priority: 5,
-})
+});
 ```
 
 ## Using Categories
@@ -150,10 +150,10 @@ on:
   schedule:
     # Every 6 hours (default)
     - cron: "0 */6 * * *"
-    
+
     # Every hour
     # - cron: "0 * * * *"
-    
+
     # Every day at midnight
     # - cron: "0 0 * * *"
 ```
@@ -196,21 +196,21 @@ Check the Actions tab in your repository to see Claude's output for each run.
 
 ## Available MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `list_pending_todos` | List all pending todos by priority |
-| `get_todo` | Get full details including categories and questions |
-| `claim_todo` | Mark a todo as in_progress |
-| `complete_todo` | Mark as complete with branch name |
-| `fail_todo` | Mark as failed with error message |
-| `add_todo` | Create new todos |
-| `list_categories` | List all categories |
-| `create_category` | Create a new category |
-| `assign_category` | Tag a todo with a category |
-| `ask_question` | Ask a clarifying question (blocks the todo) |
-| `get_unanswered_questions` | List all unanswered questions |
-| `check_answered_questions` | Check answers for a specific todo |
-| `unblock_todo` | Move a blocked todo back to pending |
+| Tool                       | Description                                         |
+| -------------------------- | --------------------------------------------------- |
+| `list_pending_todos`       | List all pending todos by priority                  |
+| `get_todo`                 | Get full details including categories and questions |
+| `claim_todo`               | Mark a todo as in_progress                          |
+| `complete_todo`            | Mark as complete with branch name                   |
+| `fail_todo`                | Mark as failed with error message                   |
+| `add_todo`                 | Create new todos                                    |
+| `list_categories`          | List all categories                                 |
+| `create_category`          | Create a new category                               |
+| `assign_category`          | Tag a todo with a category                          |
+| `ask_question`             | Ask a clarifying question (blocks the todo)         |
+| `get_unanswered_questions` | List all unanswered questions                       |
+| `check_answered_questions` | Check answers for a specific todo                   |
+| `unblock_todo`             | Move a blocked todo back to pending                 |
 
 ## Security Notes
 
