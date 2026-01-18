@@ -1,0 +1,17 @@
+{
+  "name": "autoship-mcp",
+  "version": "1.0.0",
+  "description": "Autonomous Claude agent with Supabase todo database via MCP",
+  "private": true,
+  "scripts": {
+    "build:mcp": "cd mcp-servers/todo-db && npm run build",
+    "start:mcp": "cd mcp-servers/todo-db && npm start"
+  },
+  "keywords": [
+    "claude",
+    "mcp",
+    "autonomous-agent",
+    "supabase"
+  ],
+  "license": "MIT"
+}

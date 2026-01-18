@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "todo-db": {
+      "command": "node",
+      "args": ["./mcp-servers/todo-db/dist/index.js"],
+      "env": {
+        "SUPABASE_URL": "${SUPABASE_URL}",
+        "SUPABASE_SERVICE_KEY": "${SUPABASE_SERVICE_KEY}"
+      }
+    }
+  }
+}
