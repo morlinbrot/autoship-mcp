@@ -1,4 +1,4 @@
-# Autoship MCP
+# Autoship
 
 ## The Vision
 
@@ -752,6 +752,958 @@ Check the Actions tab in your repository to see Claude's output for each run.
 
 ---
 
+## Phase 7: React Components
+
+Autoship provides drop-in React components that let users submit feedback and track tasks directly from your app.
+
+### Package Structure
+
+```
+@autoship/react/
+├── src/
+│   ├── index.ts
+│   ├── AutoshipProvider.tsx
+│   ├── AutoshipButton.tsx
+│   ├── TaskDialog.tsx
+│   ├── TaskList.tsx
+│   ├── QuestionDialog.tsx
+│   └── hooks/
+│       ├── useAutoship.ts
+│       └── useTasks.ts
+├── package.json
+└── tsconfig.json
+```
+
+### Installation
+
+```bash
+npm install @autoship/react @supabase/supabase-js
+```
+
+### Quick Start
+
+```tsx
+// App.tsx
+import { AutoshipProvider, AutoshipButton } from "@autoship/react";
+
+function App() {
+  return (
+    <AutoshipProvider
+      supabaseUrl={import.meta.env.VITE_SUPABASE_URL}
+      supabaseAnonKey={import.meta.env.VITE_SUPABASE_ANON_KEY}
+    >
+      <YourApp />
+      <AutoshipButton />
+    </AutoshipProvider>
+  );
+}
+```
+
+That's it. Users now see a floating button to submit feedback, and can track their requests.
+
+---
+
+### Component: `AutoshipProvider`
+
+Wraps your app and provides Supabase context for all Autoship components.
+
+```tsx
+// src/AutoshipProvider.tsx
+import React, { createContext, useContext, useMemo } from "react";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
+
+interface AutoshipContextValue {
+  supabase: SupabaseClient;
+  userId?: string;
+}
+
+const AutoshipContext = createContext<AutoshipContextValue | null>(null);
+
+export function useAutoshipContext() {
+  const ctx = useContext(AutoshipContext);
+  if (!ctx)
+    throw new Error("useAutoshipContext must be used within AutoshipProvider");
+  return ctx;
+}
+
+interface AutoshipProviderProps {
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  userId?: string; // Optional: associate tasks with a user
+  children: React.ReactNode;
+}
+
+export function AutoshipProvider({
+  supabaseUrl,
+  supabaseAnonKey,
+  userId,
+  children,
+}: AutoshipProviderProps) {
+  const supabase = useMemo(
+    () => createClient(supabaseUrl, supabaseAnonKey),
+    [supabaseUrl, supabaseAnonKey],
+  );
+
+  return (
+    <AutoshipContext.Provider value={{ supabase, userId }}>
+      {children}
+    </AutoshipContext.Provider>
+  );
+}
+```
+
+---
+
+### Component: `AutoshipButton`
+
+A floating action button that opens the task dialog. Positioned in the bottom-right corner by default.
+
+```tsx
+// src/AutoshipButton.tsx
+import React, { useState } from "react";
+import { TaskDialog } from "./TaskDialog";
+import { TaskList } from "./TaskList";
+
+interface AutoshipButtonProps {
+  position?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+  showTaskList?: boolean; // Show list of existing tasks
+}
+
+export function AutoshipButton({
+  position = "bottom-right",
+  showTaskList = true,
+}: AutoshipButtonProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [view, setView] = useState<"menu" | "new" | "list">("menu");
+
+  const positionStyles: Record<string, React.CSSProperties> = {
+    "bottom-right": { bottom: 20, right: 20 },
+    "bottom-left": { bottom: 20, left: 20 },
+    "top-right": { top: 20, right: 20 },
+    "top-left": { top: 20, left: 20 },
+  };
+
+  return (
+    <>
+      {/* Floating Button */}
+      <button
+        onClick={() => setIsOpen(true)}
+        style={{
+          position: "fixed",
+          ...positionStyles[position],
+          width: 56,
+          height: 56,
+          borderRadius: "50%",
+          backgroundColor: "#6366f1",
+          color: "white",
+          border: "none",
+          cursor: "pointer",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 24,
+          zIndex: 9999,
+        }}
+        aria-label="Open Autoship"
+      >
+        +
+      </button>
+
+      {/* Modal */}
+      {isOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10000,
+          }}
+          onClick={() => {
+            setIsOpen(false);
+            setView("menu");
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: 12,
+              padding: 24,
+              minWidth: 400,
+              maxWidth: "90vw",
+              maxHeight: "80vh",
+              overflow: "auto",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {view === "menu" && (
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 12 }}
+              >
+                <h2 style={{ margin: 0 }}>Autoship</h2>
+                <button onClick={() => setView("new")}>
+                  Submit New Request
+                </button>
+                {showTaskList && (
+                  <button onClick={() => setView("list")}>
+                    View My Requests
+                  </button>
+                )}
+              </div>
+            )}
+            {view === "new" && (
+              <TaskDialog
+                onClose={() => {
+                  setIsOpen(false);
+                  setView("menu");
+                }}
+                onBack={() => setView("menu")}
+              />
+            )}
+            {view === "list" && <TaskList onBack={() => setView("menu")} />}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+```
+
+---
+
+### Component: `TaskDialog`
+
+The form for submitting a new task/feature request.
+
+```tsx
+// src/TaskDialog.tsx
+import React, { useState } from "react";
+import { useAutoshipContext } from "./AutoshipProvider";
+
+interface TaskDialogProps {
+  onClose: () => void;
+  onBack: () => void;
+}
+
+export function TaskDialog({ onClose, onBack }: TaskDialogProps) {
+  const { supabase, userId } = useAutoshipContext();
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim() || !description.trim()) return;
+
+    setIsSubmitting(true);
+    try {
+      const id = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      const { error } = await supabase.from("agent_todos").insert({
+        id,
+        title: title.trim(),
+        description: description.trim(),
+        priority: 0,
+        status: "pending",
+        submitted_by: userId || null,
+      });
+
+      if (error) throw error;
+
+      setSubmitted(true);
+      setTimeout(() => onClose(), 2000);
+    } catch (err) {
+      console.error("Failed to submit task:", err);
+      alert("Failed to submit. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (submitted) {
+    return (
+      <div style={{ textAlign: "center", padding: 20 }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>✓</div>
+        <h3>Request Submitted!</h3>
+        <p>We'll get to work on this soon.</p>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
+        <button type="button" onClick={onBack} style={{ marginRight: 12 }}>
+          ←
+        </button>
+        <h2 style={{ margin: 0 }}>New Request</h2>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>
+          Title
+        </label>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="e.g., Add dark mode"
+          style={{
+            width: "100%",
+            padding: 8,
+            borderRadius: 6,
+            border: "1px solid #ddd",
+          }}
+          required
+        />
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>
+          Description
+        </label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Describe what you'd like in detail..."
+          rows={5}
+          style={{
+            width: "100%",
+            padding: 8,
+            borderRadius: 6,
+            border: "1px solid #ddd",
+            resize: "vertical",
+          }}
+          required
+        />
+      </div>
+
+      <button
+        type="submit"
+        disabled={isSubmitting}
+        style={{
+          width: "100%",
+          padding: 12,
+          backgroundColor: "#6366f1",
+          color: "white",
+          border: "none",
+          borderRadius: 6,
+          cursor: isSubmitting ? "not-allowed" : "pointer",
+        }}
+      >
+        {isSubmitting ? "Submitting..." : "Submit Request"}
+      </button>
+    </form>
+  );
+}
+```
+
+---
+
+### Component: `TaskList`
+
+Shows the user's submitted tasks and their status. Also surfaces questions from the AI.
+
+```tsx
+// src/TaskList.tsx
+import React, { useEffect, useState } from "react";
+import { useAutoshipContext } from "./AutoshipProvider";
+import { QuestionDialog } from "./QuestionDialog";
+
+interface Task {
+  id: string;
+  title: string;
+  description: string;
+  status: "pending" | "in_progress" | "complete" | "failed" | "needs_info";
+  branch_name: string | null;
+  pr_url: string | null;
+  questions: Question[] | null;
+  created_at: string;
+}
+
+interface Question {
+  id: string;
+  question: string;
+  answer: string | null;
+  asked_at: string;
+}
+
+interface TaskListProps {
+  onBack: () => void;
+}
+
+export function TaskList({ onBack }: TaskListProps) {
+  const { supabase, userId } = useAutoshipContext();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+
+  useEffect(() => {
+    loadTasks();
+  }, []);
+
+  const loadTasks = async () => {
+    setLoading(true);
+    try {
+      let query = supabase
+        .from("agent_todos")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      // If userId is set, only show that user's tasks
+      if (userId) {
+        query = query.eq("submitted_by", userId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setTasks(data || []);
+    } catch (err) {
+      console.error("Failed to load tasks:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const statusColors: Record<string, string> = {
+    pending: "#f59e0b",
+    in_progress: "#3b82f6",
+    complete: "#10b981",
+    failed: "#ef4444",
+    needs_info: "#8b5cf6",
+  };
+
+  const statusLabels: Record<string, string> = {
+    pending: "Pending",
+    in_progress: "In Progress",
+    complete: "Complete",
+    failed: "Failed",
+    needs_info: "Needs Info",
+  };
+
+  if (selectedTask) {
+    return (
+      <QuestionDialog
+        task={selectedTask}
+        onBack={() => {
+          setSelectedTask(null);
+          loadTasks();
+        }}
+        onAnswered={loadTasks}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
+        <button type="button" onClick={onBack} style={{ marginRight: 12 }}>
+          ←
+        </button>
+        <h2 style={{ margin: 0 }}>My Requests</h2>
+      </div>
+
+      {loading ? (
+        <p>Loading...</p>
+      ) : tasks.length === 0 ? (
+        <p style={{ color: "#666" }}>No requests yet.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {tasks.map((task) => (
+            <div
+              key={task.id}
+              style={{
+                padding: 12,
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                cursor: task.status === "needs_info" ? "pointer" : "default",
+              }}
+              onClick={() =>
+                task.status === "needs_info" && setSelectedTask(task)
+              }
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "start",
+                }}
+              >
+                <h4 style={{ margin: 0 }}>{task.title}</h4>
+                <span
+                  style={{
+                    backgroundColor: statusColors[task.status],
+                    color: "white",
+                    padding: "2px 8px",
+                    borderRadius: 12,
+                    fontSize: 12,
+                  }}
+                >
+                  {statusLabels[task.status]}
+                </span>
+              </div>
+
+              <p style={{ margin: "8px 0", fontSize: 14, color: "#666" }}>
+                {task.description.length > 100
+                  ? task.description.slice(0, 100) + "..."
+                  : task.description}
+              </p>
+
+              {task.status === "needs_info" && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 12,
+                    color: "#8b5cf6",
+                    fontWeight: 500,
+                  }}
+                >
+                  Click to answer questions
+                </p>
+              )}
+
+              {task.pr_url && (
+                <a
+                  href={task.pr_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: 12, color: "#3b82f6" }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  View Pull Request →
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+---
+
+### Component: `QuestionDialog`
+
+Allows users to answer clarifying questions from the AI agent.
+
+```tsx
+// src/QuestionDialog.tsx
+import React, { useState } from "react";
+import { useAutoshipContext } from "./AutoshipProvider";
+
+interface Question {
+  id: string;
+  question: string;
+  answer: string | null;
+  asked_at: string;
+}
+
+interface Task {
+  id: string;
+  title: string;
+  questions: Question[] | null;
+}
+
+interface QuestionDialogProps {
+  task: Task;
+  onBack: () => void;
+  onAnswered: () => void;
+}
+
+export function QuestionDialog({
+  task,
+  onBack,
+  onAnswered,
+}: QuestionDialogProps) {
+  const { supabase } = useAutoshipContext();
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const unansweredQuestions = (task.questions || []).filter((q) => !q.answer);
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      // Update questions with answers
+      const updatedQuestions = (task.questions || []).map((q) => ({
+        ...q,
+        answer: answers[q.id] || q.answer,
+        answered_at: answers[q.id] ? new Date().toISOString() : null,
+      }));
+
+      // Check if all questions are now answered
+      const allAnswered = updatedQuestions.every((q) => q.answer);
+
+      const { error } = await supabase
+        .from("agent_todos")
+        .update({
+          questions: updatedQuestions,
+          status: allAnswered ? "pending" : "needs_info", // Move back to pending if all answered
+        })
+        .eq("id", task.id);
+
+      if (error) throw error;
+
+      onAnswered();
+      onBack();
+    } catch (err) {
+      console.error("Failed to submit answers:", err);
+      alert("Failed to submit. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
+        <button type="button" onClick={onBack} style={{ marginRight: 12 }}>
+          ←
+        </button>
+        <h2 style={{ margin: 0 }}>Questions for: {task.title}</h2>
+      </div>
+
+      <p style={{ color: "#666", marginBottom: 16 }}>
+        The AI needs some clarification before proceeding. Please answer the
+        questions below.
+      </p>
+
+      {unansweredQuestions.length === 0 ? (
+        <p>All questions have been answered!</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {unansweredQuestions.map((q, index) => (
+            <div key={q.id}>
+              <label
+                style={{ display: "block", marginBottom: 4, fontWeight: 500 }}
+              >
+                {index + 1}. {q.question}
+              </label>
+              <textarea
+                value={answers[q.id] || ""}
+                onChange={(e) =>
+                  setAnswers({ ...answers, [q.id]: e.target.value })
+                }
+                placeholder="Your answer..."
+                rows={3}
+                style={{
+                  width: "100%",
+                  padding: 8,
+                  borderRadius: 6,
+                  border: "1px solid #ddd",
+                  resize: "vertical",
+                }}
+              />
+            </div>
+          ))}
+
+          <button
+            onClick={handleSubmit}
+            disabled={isSubmitting || Object.keys(answers).length === 0}
+            style={{
+              padding: 12,
+              backgroundColor: "#6366f1",
+              color: "white",
+              border: "none",
+              borderRadius: 6,
+              cursor: isSubmitting ? "not-allowed" : "pointer",
+            }}
+          >
+            {isSubmitting ? "Submitting..." : "Submit Answers"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+---
+
+### Updated Database Schema for Q&A
+
+Add these columns to the `agent_todos` table:
+
+```sql
+-- Add to the migration or run separately
+ALTER TABLE agent_todos
+  ADD COLUMN IF NOT EXISTS submitted_by TEXT,
+  ADD COLUMN IF NOT EXISTS questions JSONB DEFAULT '[]';
+
+-- Index for user's tasks
+CREATE INDEX IF NOT EXISTS idx_agent_todos_submitted_by ON agent_todos(submitted_by);
+
+-- RLS policy for users to see their own tasks (using anon key)
+CREATE POLICY "Users can view their own tasks"
+    ON agent_todos
+    FOR SELECT
+    USING (submitted_by = auth.uid()::text OR submitted_by IS NULL);
+
+CREATE POLICY "Users can insert tasks"
+    ON agent_todos
+    FOR INSERT
+    WITH CHECK (true);
+
+CREATE POLICY "Users can update their own tasks"
+    ON agent_todos
+    FOR UPDATE
+    USING (submitted_by = auth.uid()::text);
+```
+
+The `questions` column stores an array of questions:
+
+```json
+[
+  {
+    "id": "q_123",
+    "question": "Should the dark mode toggle persist across sessions?",
+    "answer": null,
+    "asked_at": "2026-01-18T10:00:00Z",
+    "answered_at": null
+  }
+]
+```
+
+---
+
+### MCP Server: Ask Question Tool
+
+Add this tool to the MCP server so Claude can ask clarifying questions:
+
+```typescript
+// Add to mcp-servers/todo-db/src/index.ts
+
+server.tool(
+  "ask_question",
+  "Ask a clarifying question about a todo. The user will be notified and can answer via the UI.",
+  {
+    todo_id: z.string().describe("The todo ID"),
+    question: z.string().describe("The question to ask the user"),
+  },
+  async ({ todo_id, question }) => {
+    // First, get the current todo
+    const { data: todo, error: fetchError } = await supabase
+      .from("agent_todos")
+      .select("questions")
+      .eq("id", todo_id)
+      .single();
+
+    if (fetchError) {
+      return {
+        content: [
+          { type: "text", text: `Error fetching todo: ${fetchError.message}` },
+        ],
+        isError: true,
+      };
+    }
+
+    const questionId = `q_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const newQuestion = {
+      id: questionId,
+      question,
+      answer: null,
+      asked_at: new Date().toISOString(),
+      answered_at: null,
+    };
+
+    const existingQuestions = todo.questions || [];
+    const updatedQuestions = [...existingQuestions, newQuestion];
+
+    const { error: updateError } = await supabase
+      .from("agent_todos")
+      .update({
+        questions: updatedQuestions,
+        status: "needs_info",
+      })
+      .eq("id", todo_id);
+
+    if (updateError) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error asking question: ${updateError.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Question asked. Todo marked as 'needs_info'. The user will be prompted to answer: "${question}"`,
+        },
+      ],
+    };
+  },
+);
+
+server.tool(
+  "check_answers",
+  "Check if a todo has any unanswered questions or newly provided answers.",
+  {
+    todo_id: z.string().describe("The todo ID"),
+  },
+  async ({ todo_id }) => {
+    const { data, error } = await supabase
+      .from("agent_todos")
+      .select("questions, status")
+      .eq("id", todo_id)
+      .single();
+
+    if (error) {
+      return {
+        content: [
+          { type: "text", text: `Error fetching todo: ${error.message}` },
+        ],
+        isError: true,
+      };
+    }
+
+    const questions = data.questions || [];
+    const unanswered = questions.filter((q: any) => !q.answer);
+    const answered = questions.filter((q: any) => q.answer);
+
+    if (questions.length === 0) {
+      return {
+        content: [
+          { type: "text", text: "No questions have been asked for this todo." },
+        ],
+      };
+    }
+
+    let response = `Questions for this todo:\n\n`;
+
+    for (const q of questions) {
+      response += `Q: ${q.question}\n`;
+      response += q.answer ? `A: ${q.answer}\n\n` : `A: (awaiting answer)\n\n`;
+    }
+
+    response += `Status: ${unanswered.length} unanswered, ${answered.length} answered`;
+
+    return {
+      content: [{ type: "text", text: response }],
+    };
+  },
+);
+```
+
+---
+
+### Hooks for Custom Integrations
+
+```tsx
+// src/hooks/useAutoship.ts
+import { useAutoshipContext } from "../AutoshipProvider";
+
+export function useAutoship() {
+  const { supabase, userId } = useAutoshipContext();
+
+  const submitTask = async (
+    title: string,
+    description: string,
+    priority = 0,
+  ) => {
+    const id = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    const { data, error } = await supabase
+      .from("agent_todos")
+      .insert({
+        id,
+        title,
+        description,
+        priority,
+        status: "pending",
+        submitted_by: userId || null,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  };
+
+  return { submitTask };
+}
+
+// src/hooks/useTasks.ts
+import { useEffect, useState } from "react";
+import { useAutoshipContext } from "../AutoshipProvider";
+
+export function useTasks() {
+  const { supabase, userId } = useAutoshipContext();
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadTasks();
+
+    // Subscribe to realtime updates
+    const subscription = supabase
+      .channel("agent_todos_changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "agent_todos",
+          filter: userId ? `submitted_by=eq.${userId}` : undefined,
+        },
+        () => {
+          loadTasks();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [userId]);
+
+  const loadTasks = async () => {
+    let query = supabase
+      .from("agent_todos")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (userId) {
+      query = query.eq("submitted_by", userId);
+    }
+
+    const { data } = await query;
+    setTasks(data || []);
+    setLoading(false);
+  };
+
+  return { tasks, loading, refresh: loadTasks };
+}
+```
+
+---
+
+### Package Export
+
+```tsx
+// src/index.ts
+export { AutoshipProvider, useAutoshipContext } from "./AutoshipProvider";
+export { AutoshipButton } from "./AutoshipButton";
+export { TaskDialog } from "./TaskDialog";
+export { TaskList } from "./TaskList";
+export { QuestionDialog } from "./QuestionDialog";
+export { useAutoship } from "./hooks/useAutoship";
+export { useTasks } from "./hooks/useTasks";
+```
+
+---
+
 ## Next Steps
 
 1. [ ] Apply the database migration
@@ -761,3 +1713,6 @@ Check the Actions tab in your repository to see Claude's output for each run.
 5. [ ] Create the GitHub Actions workflow
 6. [ ] Add a test todo and trigger the workflow manually
 7. [ ] Review the PR created by the agent
+8. [ ] Create the `@autoship/react` package
+9. [ ] Publish to npm
+10. [ ] Create installable GitHub Action for easy adoption
