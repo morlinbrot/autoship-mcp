@@ -78,15 +78,21 @@ jobs:
             git push -u origin "$CURRENT_BRANCH"
 
             # Create PR using GitHub CLI
-            gh pr create \
-              --title "$(git log -1 --pretty=%s)" \
-              --body "This PR was created by the Claude Agent.
+            echo "Creating PR for branch: $CURRENT_BRANCH"
+            if gh pr list --head "$CURRENT_BRANCH" --json number --jq '.[0].number' | grep -q .; then
+              echo "PR already exists for this branch"
+            else
+              gh pr create \
+                --title "$(git log -1 --pretty=%s)" \
+                --body "This PR was created by the Claude Agent.
 
           See the agent_tasks table in Supabase for task details." \
-              --base main \
-              --head "$CURRENT_BRANCH" || echo "PR may already exist"
+                --base main \
+                --head "$CURRENT_BRANCH"
+              echo "PR created successfully"
+            fi
           else
             echo "No new branch to push"
           fi
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
