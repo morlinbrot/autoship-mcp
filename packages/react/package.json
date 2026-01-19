@@ -10,22 +10,29 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "bin": {
+    "autoship": "./dist/cli/autoship.js"
+  },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch"
+    "build": "tsc && npm run copy-migrations",
+    "copy-migrations": "mkdir -p dist/migrations && cp ../../supabase/migrations/*.sql dist/migrations/",
+    "dev": "tsc --watch",
+    "cli": "node dist/cli/autoship.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.90.1"
   },
   "peerDependencies": {
-    "react": "^18.0.0 || ^19.0.0",
-    "@supabase/supabase-js": "^2.0.0"
+    "react": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "@types/react": "^18.3.0",
     "react": "^18.3.0",
-    "typescript": "^5.8.0",
-    "@supabase/supabase-js": "^2.90.1"
+    "typescript": "^5.8.0"
   },
   "keywords": [
     "autoship",
