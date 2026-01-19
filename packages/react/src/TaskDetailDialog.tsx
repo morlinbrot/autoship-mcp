@@ -158,7 +158,7 @@ export function TaskDetailDialog({
               display: "inline-block",
               marginTop: 8,
               fontSize: 13,
-              color: "#3b82f6",
+              color: "#10b981",
             }}
           >
             View Pull Request
@@ -241,7 +241,7 @@ export function TaskDetailDialog({
                 style={{
                   margin: "0 0 8px 0",
                   fontSize: 12,
-                  color: "#7c3aed",
+                  color: "#059669",
                   textTransform: "uppercase",
                   fontWeight: 600,
                 }}
@@ -254,9 +254,9 @@ export function TaskDetailDialog({
                     key={q.id}
                     style={{
                       padding: 12,
-                      backgroundColor: "#faf5ff",
+                      backgroundColor: "#ecfdf5",
                       borderRadius: 8,
-                      borderLeft: "3px solid #8b5cf6",
+                      borderLeft: "3px solid #10b981",
                     }}
                   >
                     <label
@@ -265,7 +265,7 @@ export function TaskDetailDialog({
                         marginBottom: 8,
                         fontWeight: 500,
                         fontSize: 14,
-                        color: "#5b21b6",
+                        color: "#047857",
                       }}
                     >
                       {index + 1}. {q.question}
@@ -281,7 +281,7 @@ export function TaskDetailDialog({
                         width: "100%",
                         padding: 10,
                         borderRadius: 6,
-                        border: "1px solid #ddd4fc",
+                        border: "1px solid #a7f3d0",
                         fontSize: 14,
                         resize: "vertical",
                         boxSizing: "border-box",
@@ -298,8 +298,8 @@ export function TaskDetailDialog({
                     padding: 12,
                     backgroundColor:
                       isSubmitting || Object.keys(answers).length === 0
-                        ? "#a5b4fc"
-                        : "#6366f1",
+                        ? "#a7f3d0"
+                        : "#10b981",
                     color: "white",
                     border: "none",
                     borderRadius: 6,
