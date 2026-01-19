@@ -48,6 +48,17 @@ jobs:
           git config user.name "Claude Agent"
           git config user.email "claude-agent@users.noreply.github.com"
 
+      - name: Debug API key
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "API key is set, length: ${#ANTHROPIC_API_KEY}"
+            echo "First 10 chars: ${ANTHROPIC_API_KEY:0:10}..."
+          else
+            echo "API key is NOT set"
+          fi
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
       - name: Run Claude Agent
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
