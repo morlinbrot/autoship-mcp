@@ -137,7 +137,7 @@ export function TaskList({ onBack }: TaskListProps): React.ReactElement {
                   border: "1px solid #e5e7eb",
                   borderRadius: 8,
                   cursor: "pointer",
-                  backgroundColor: hasUnansweredQuestions ? "#faf5ff" : "white",
+                  backgroundColor: hasUnansweredQuestions ? "#ecfdf5" : "white",
                   transition: "background-color 0.15s ease",
                 }}
                 onClick={() => setSelectedTask(task)}
@@ -148,7 +148,7 @@ export function TaskList({ onBack }: TaskListProps): React.ReactElement {
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.backgroundColor = hasUnansweredQuestions
-                    ? "#faf5ff"
+                    ? "#ecfdf5"
                     : "white";
                 }}
               >
@@ -201,7 +201,7 @@ export function TaskList({ onBack }: TaskListProps): React.ReactElement {
                     <span
                       style={{
                         fontSize: 12,
-                        color: "#8b5cf6",
+                        color: "#059669",
                         fontWeight: 500,
                       }}
                     >
@@ -225,7 +225,7 @@ export function TaskList({ onBack }: TaskListProps): React.ReactElement {
                       href={task.pr_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      style={{ fontSize: 12, color: "#3b82f6" }}
+                      style={{ fontSize: 12, color: "#10b981" }}
                       onClick={(e) => e.stopPropagation()}
                     >
                       View PR

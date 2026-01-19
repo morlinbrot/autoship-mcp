@@ -133,8 +133,8 @@ export function QuestionDialog({
               padding: 12,
               backgroundColor:
                 isSubmitting || Object.keys(answers).length === 0
-                  ? "#a5b4fc"
-                  : "#6366f1",
+                  ? "#a7f3d0"
+                  : "#10b981",
               color: "white",
               border: "none",
               borderRadius: 6,

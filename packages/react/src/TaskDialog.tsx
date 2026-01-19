@@ -141,7 +141,7 @@ export function TaskDialog({
         style={{
           width: "100%",
           padding: 12,
-          backgroundColor: isSubmitting ? "#a5b4fc" : "#6366f1",
+          backgroundColor: isSubmitting ? "#a7f3d0" : "#10b981",
           color: "white",
           border: "none",
           borderRadius: 6,
