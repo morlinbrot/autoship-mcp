@@ -33,31 +33,10 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install MCP server dependencies
-        run: |
-          cd mcp-servers/autoship-mcp
-          npm ci
-
-      - name: Build MCP server
-        run: |
-          cd mcp-servers/autoship-mcp
-          npm run build
-
       - name: Configure git
         run: |
           git config user.name "Claude Agent"
           git config user.email "claude-agent@users.noreply.github.com"
-
-      - name: Debug API key
-        run: |
-          if [ -n "$ANTHROPIC_API_KEY" ]; then
-            echo "API key is set, length: ${#ANTHROPIC_API_KEY}"
-            echo "First 10 chars: ${ANTHROPIC_API_KEY:0:10}..."
-          else
-            echo "API key is NOT set"
-          fi
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Run Claude Agent
         env:
@@ -65,35 +44,30 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
-          # Default prompt
-          PROMPT="You are an autonomous coding agent. Your job is to:
+          set -e
 
-          1. Use the list_pending_todos tool to see available tasks
-          2. If there are pending todos, pick the highest priority one
-          3. Use claim_todo to mark it as in progress
-          4. Read the todo description carefully and implement the requested changes
-          5. Create a new git branch with a descriptive name (e.g., 'agent/add-logout-button')
-          6. Make the necessary code changes
-          7. Commit your changes with a clear commit message
-          8. Use complete_todo to mark the task as done, including the branch name
-          9. If you encounter an error you cannot resolve, use fail_todo with a clear explanation
-          10. If you need clarification, use ask_question to ask and the todo will be blocked until answered
+          # Download the agent script and its package.json
+          mkdir -p /tmp/autoship-agent
 
-          Important guidelines:
-          - Only work on ONE todo per run
-          - Make minimal, focused changes
-          - Write clean, well-tested code
-          - If a task is unclear, use ask_question rather than guessing
-          - Check check_answered_questions if working on a previously blocked todo
+          echo "Downloading agent script..."
+          curl -fSL https://raw.githubusercontent.com/morlinbrot/autoship-mcp/main/scripts/claude-agent.js -o /tmp/autoship-agent/claude-agent.js
 
-          Start by listing the pending todos."
+          echo "Downloading package.json..."
+          curl -fSL https://raw.githubusercontent.com/morlinbrot/autoship-mcp/main/scripts/package.json -o /tmp/autoship-agent/package.json
 
-          # Use override if provided
+          # Install dependencies
+          echo "Installing dependencies..."
+          cd /tmp/autoship-agent
+          npm install
+
+          # Run the agent (from the original repo directory)
+          cd $GITHUB_WORKSPACE
+          echo "Starting Claude Agent..."
           if [ -n "${{ inputs.prompt_override }}" ]; then
-            PROMPT="${{ inputs.prompt_override }}"
+            node /tmp/autoship-agent/claude-agent.js "${{ inputs.prompt_override }}"
+          else
+            node /tmp/autoship-agent/claude-agent.js
           fi
-
-          npx @anthropic-ai/claude-code --print "$PROMPT"
 
       - name: Push branch if created
         run: |
