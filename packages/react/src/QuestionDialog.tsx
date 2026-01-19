@@ -17,30 +17,42 @@ export function QuestionDialog({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const unansweredQuestions = (task.questions || []).filter((q) => !q.answer);
+  const questions = task.task_questions || [];
+  const unansweredQuestions = questions.filter((q) => !q.answer);
 
   const handleSubmit = async () => {
     if (Object.keys(answers).length === 0) return;
 
     setIsSubmitting(true);
     try {
-      const updatedQuestions = (task.questions || []).map((q) => ({
-        ...q,
-        answer: answers[q.id] || q.answer,
-        answered_at: answers[q.id] ? new Date().toISOString() : q.answered_at,
-      }));
+      // Update each question in task_questions table
+      for (const [questionId, answer] of Object.entries(answers)) {
+        const { error } = await supabase
+          .from("task_questions")
+          .update({
+            answer: answer,
+            answered_at: new Date().toISOString(),
+          })
+          .eq("id", questionId);
 
-      const allAnswered = updatedQuestions.every((q) => q.answer);
+        if (error) throw error;
+      }
 
-      const { error } = await supabase
-        .from("agent_todos")
-        .update({
-          questions: updatedQuestions,
-          status: allAnswered ? "pending" : "needs_info",
-        })
-        .eq("id", task.id);
+      // Check if all questions are now answered
+      const remainingUnanswered = unansweredQuestions.filter(
+        (q) => !answers[q.id]
+      );
+      const allAnswered = remainingUnanswered.length === 0;
 
-      if (error) throw error;
+      // Update task status if all questions answered
+      if (allAnswered && (task.status === "needs_info" || task.status === "blocked")) {
+        const { error: statusError } = await supabase
+          .from("agent_tasks")
+          .update({ status: "pending" })
+          .eq("id", task.id);
+
+        if (statusError) throw statusError;
+      }
 
       onAnswered();
       onBack();

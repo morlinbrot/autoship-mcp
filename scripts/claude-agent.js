@@ -5,8 +5,8 @@
  *
  * This script runs Claude as an autonomous agent that:
  * 1. Downloads and sets up the autoship MCP server automatically
- * 2. Connects to the MCP server to get todos
- * 3. Works on the highest priority todo
+ * 2. Connects to the MCP server to get tasks
+ * 3. Works on the highest priority task
  * 4. Can execute bash commands, read/write files, and use git
  * 5. Creates branches and commits for completed work
  *
@@ -527,25 +527,25 @@ async function runAgent(prompt) {
 // Default system prompt
 const DEFAULT_PROMPT = `You are an autonomous coding agent. Your job is to:
 
-1. Use the mcp_list_pending_todos tool to see available tasks
-2. If there are pending todos, pick the highest priority one
-3. Use mcp_claim_todo to mark it as in progress
-4. Read the todo description carefully and implement the requested changes
+1. Use the mcp_list_pending_tasks tool to see available tasks
+2. If there are pending tasks, pick the highest priority one
+3. Use mcp_claim_task to mark it as in progress
+4. Read the task description carefully and implement the requested changes
 5. Create a new git branch with a descriptive name (e.g., 'agent/add-logout-button')
 6. Make the necessary code changes
 7. Commit your changes with a clear commit message
-8. Use mcp_complete_todo to mark the task as done, including the branch name
-9. If you encounter an error you cannot resolve, use mcp_fail_todo with a clear explanation
-10. If you need clarification, use mcp_ask_question to ask and the todo will be blocked until answered
+8. Use mcp_complete_task to mark the task as done, including the branch name
+9. If you encounter an error you cannot resolve, use mcp_fail_task with a clear explanation
+10. If you need clarification, use mcp_ask_question to ask and the task will be marked as needing info until answered
 
 Important guidelines:
-- Only work on ONE todo per run
+- Only work on ONE task per run
 - Make minimal, focused changes
 - Write clean, well-tested code
 - If a task is unclear, use mcp_ask_question rather than guessing
-- Check mcp_check_answered_questions if working on a previously blocked todo
+- Check mcp_check_answered_questions if working on a previously blocked task
 
-Start by listing the pending todos.`;
+Start by listing the pending tasks.`;
 
 // Entry point
 const prompt = process.argv[2] || DEFAULT_PROMPT;

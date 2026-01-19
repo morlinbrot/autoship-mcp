@@ -24,7 +24,7 @@ export function TaskDialog({
     try {
       const id = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      const { error } = await supabase.from("agent_todos").insert({
+      const { error } = await supabase.from("agent_tasks").insert({
         id,
         title: title.trim(),
         description: description.trim(),

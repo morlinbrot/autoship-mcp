@@ -16,7 +16,7 @@ You're building an app. You want tight feedback cycles where user requests go di
 
 ---
 
-This document outlines how to set up an autonomous Claude agent that wakes up on a schedule, reads todos from a Supabase database, works on them, and creates branches with the changes.
+This document outlines how to set up an autonomous Claude agent that wakes up on a schedule, reads tasks from a Supabase database, works on them, and creates branches with the changes.
 
 ## Architecture Overview
 
@@ -34,13 +34,13 @@ This document outlines how to set up an autonomous Claude agent that wakes up on
                               │ stdio (JSON-RPC)
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     MCP Server (todo-db)                         │
+│                     MCP Server (autoship-mcp)                    │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │  Tools:                                                    │  │
-│  │  - list_pending_todos    → SELECT * FROM agent_todos       │  │
-│  │  - claim_todo            → UPDATE status = 'in_progress'   │  │
-│  │  - complete_todo         → UPDATE status = 'complete'      │  │
-│  │  - fail_todo             → UPDATE status = 'failed'        │  │
+│  │  - list_pending_tasks    → SELECT * FROM agent_tasks       │  │
+│  │  - claim_task            → UPDATE status = 'in_progress'   │  │
+│  │  - complete_task         → UPDATE status = 'complete'      │  │
+│  │  - fail_task             → UPDATE status = 'failed'        │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -49,7 +49,7 @@ This document outlines how to set up an autonomous Claude agent that wakes up on
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Supabase (PostgreSQL)                        │
 │  ┌───────────────────────────────────────────────────────────┐  │
-│  │  Table: agent_todos                                        │  │
+│  │  Table: agent_tasks                                        │  │
 │  │  - id, title, description, priority, status, branch_name   │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
@@ -59,33 +59,45 @@ This document outlines how to set up an autonomous Claude agent that wakes up on
 
 ## Phase 1: Database Schema
 
-Create a new migration for the agent todos table.
+Create a new migration for the agent tasks table.
 
-### File: `supabase/migrations/YYYYMMDDHHMMSS_add_agent_todos.sql`
+### File: `supabase/migrations/YYYYMMDDHHMMSS_initial_schema.sql`
 
 ```sql
--- Agent todos table for autonomous Claude agent
-CREATE TABLE IF NOT EXISTS agent_todos (
+-- Agent tasks table for autonomous Claude agent
+CREATE TABLE IF NOT EXISTS agent_tasks (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     description TEXT NOT NULL,
     priority INTEGER DEFAULT 0,  -- Higher = more urgent
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'complete', 'failed')),
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'complete', 'failed', 'blocked', 'needs_info')),
     branch_name TEXT,
     pr_url TEXT,
     notes TEXT,
     error_message TEXT,
+    submitted_by TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ
 );
 
--- Index for finding pending todos quickly
-CREATE INDEX idx_agent_todos_status_priority ON agent_todos(status, priority DESC);
+-- Index for finding pending tasks quickly
+CREATE INDEX idx_agent_tasks_status_priority ON agent_tasks(status, priority DESC);
+
+-- Questions table for two-way communication
+CREATE TABLE IF NOT EXISTS task_questions (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+    question TEXT NOT NULL,
+    answer TEXT,
+    asked_by TEXT DEFAULT 'agent',
+    asked_at TIMESTAMPTZ DEFAULT NOW(),
+    answered_at TIMESTAMPTZ
+);
 
 -- Trigger to update updated_at
-CREATE OR REPLACE FUNCTION update_agent_todos_updated_at()
+CREATE OR REPLACE FUNCTION update_agent_tasks_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
@@ -93,17 +105,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER agent_todos_updated_at
-    BEFORE UPDATE ON agent_todos
+CREATE TRIGGER agent_tasks_updated_at
+    BEFORE UPDATE ON agent_tasks
     FOR EACH ROW
-    EXECUTE FUNCTION update_agent_todos_updated_at();
+    EXECUTE FUNCTION update_agent_tasks_updated_at();
 
 -- RLS policies (assuming you want admin-only access via service key)
-ALTER TABLE agent_todos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_tasks ENABLE ROW LEVEL SECURITY;
 
 -- Allow service role full access (used by the MCP server)
-CREATE POLICY "Service role has full access to agent_todos"
-    ON agent_todos
+CREATE POLICY "Service role has full access to agent_tasks"
+    ON agent_tasks
     FOR ALL
     USING (true)
     WITH CHECK (true);
@@ -125,367 +137,17 @@ supabase migration up
 
 ```
 mcp-servers/
-└── todo-db/
+└── autoship-mcp/
     ├── package.json
     ├── tsconfig.json
     └── src/
         └── index.ts
 ```
 
-### File: `mcp-servers/todo-db/package.json`
-
-```json
-{
-  "name": "todo-db-mcp",
-  "version": "1.0.0",
-  "type": "module",
-  "main": "dist/index.js",
-  "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "@supabase/supabase-js": "^2.90.1"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "typescript": "^5.8.0"
-  }
-}
-```
-
-### File: `mcp-servers/todo-db/tsconfig.json`
-
-```json
-{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "declaration": true
-  },
-  "include": ["src/**/*"]
-}
-```
-
-### File: `mcp-servers/todo-db/src/index.ts`
-
-```typescript
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-
-// Validate environment
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-
-if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-  console.error(
-    "Missing SUPABASE_URL or SUPABASE_SERVICE_KEY environment variables",
-  );
-  process.exit(1);
-}
-
-const supabase: SupabaseClient = createClient(
-  SUPABASE_URL,
-  SUPABASE_SERVICE_KEY,
-);
-
-// Types
-interface AgentTodo {
-  id: string;
-  title: string;
-  description: string;
-  priority: number;
-  status: "pending" | "in_progress" | "complete" | "failed";
-  branch_name: string | null;
-  pr_url: string | null;
-  notes: string | null;
-  error_message: string | null;
-  created_at: string;
-  updated_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-}
-
-// Create MCP server
-const server = new McpServer({
-  name: "todo-db",
-  version: "1.0.0",
-});
-
-// Tool: List pending todos
-server.tool(
-  "list_pending_todos",
-  "List all pending todos from the database, ordered by priority (highest first)",
-  {},
-  async () => {
-    const { data, error } = await supabase
-      .from("agent_todos")
-      .select("*")
-      .eq("status", "pending")
-      .order("priority", { ascending: false })
-      .order("created_at", { ascending: true });
-
-    if (error) {
-      return {
-        content: [
-          { type: "text", text: `Error fetching todos: ${error.message}` },
-        ],
-        isError: true,
-      };
-    }
-
-    if (!data || data.length === 0) {
-      return {
-        content: [{ type: "text", text: "No pending todos found." }],
-      };
-    }
-
-    const formatted = (data as AgentTodo[])
-      .map(
-        (todo, i) =>
-          `${i + 1}. [${todo.id}] (priority: ${todo.priority}) ${todo.title}\n   ${todo.description}`,
-      )
-      .join("\n\n");
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Found ${data.length} pending todo(s):\n\n${formatted}`,
-        },
-      ],
-    };
-  },
-);
-
-// Tool: Get todo details
-server.tool(
-  "get_todo",
-  "Get full details of a specific todo by ID",
-  {
-    todo_id: z.string().describe("The todo ID"),
-  },
-  async ({ todo_id }) => {
-    const { data, error } = await supabase
-      .from("agent_todos")
-      .select("*")
-      .eq("id", todo_id)
-      .single();
-
-    if (error) {
-      return {
-        content: [
-          { type: "text", text: `Error fetching todo: ${error.message}` },
-        ],
-        isError: true,
-      };
-    }
-
-    return {
-      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-    };
-  },
-);
-
-// Tool: Claim a todo (mark as in_progress)
-server.tool(
-  "claim_todo",
-  "Mark a todo as in_progress. Call this before starting work on a todo.",
-  {
-    todo_id: z.string().describe("The todo ID to claim"),
-  },
-  async ({ todo_id }) => {
-    const { data, error } = await supabase
-      .from("agent_todos")
-      .update({
-        status: "in_progress",
-        started_at: new Date().toISOString(),
-      })
-      .eq("id", todo_id)
-      .eq("status", "pending") // Only claim if still pending
-      .select()
-      .single();
-
-    if (error) {
-      return {
-        content: [
-          { type: "text", text: `Error claiming todo: ${error.message}` },
-        ],
-        isError: true,
-      };
-    }
-
-    if (!data) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Todo ${todo_id} is not available (may already be claimed or completed).`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    return {
-      content: [
-        { type: "text", text: `Successfully claimed todo: ${data.title}` },
-      ],
-    };
-  },
-);
-
-// Tool: Complete a todo
-server.tool(
-  "complete_todo",
-  "Mark a todo as complete. Call this after successfully implementing the changes.",
-  {
-    todo_id: z.string().describe("The todo ID"),
-    branch_name: z.string().describe("The git branch containing the changes"),
-    notes: z.string().optional().describe("Implementation notes or summary"),
-  },
-  async ({ todo_id, branch_name, notes }) => {
-    const { data, error } = await supabase
-      .from("agent_todos")
-      .update({
-        status: "complete",
-        branch_name,
-        notes: notes || null,
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", todo_id)
-      .select()
-      .single();
-
-    if (error) {
-      return {
-        content: [
-          { type: "text", text: `Error completing todo: ${error.message}` },
-        ],
-        isError: true,
-      };
-    }
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Todo "${data.title}" marked as complete. Branch: ${branch_name}`,
-        },
-      ],
-    };
-  },
-);
-
-// Tool: Fail a todo
-server.tool(
-  "fail_todo",
-  "Mark a todo as failed. Call this if you cannot complete the task.",
-  {
-    todo_id: z.string().describe("The todo ID"),
-    error_message: z
-      .string()
-      .describe("Explanation of why the todo could not be completed"),
-  },
-  async ({ todo_id, error_message }) => {
-    const { data, error } = await supabase
-      .from("agent_todos")
-      .update({
-        status: "failed",
-        error_message,
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", todo_id)
-      .select()
-      .single();
-
-    if (error) {
-      return {
-        content: [
-          { type: "text", text: `Error updating todo: ${error.message}` },
-        ],
-        isError: true,
-      };
-    }
-
-    return {
-      content: [
-        { type: "text", text: `Todo "${data.title}" marked as failed.` },
-      ],
-    };
-  },
-);
-
-// Tool: Add a new todo (useful for the agent to create follow-up tasks)
-server.tool(
-  "add_todo",
-  "Add a new todo to the queue. Use this for follow-up tasks discovered during implementation.",
-  {
-    title: z.string().describe("Short title for the todo"),
-    description: z
-      .string()
-      .describe("Detailed description of what needs to be done"),
-    priority: z
-      .number()
-      .default(0)
-      .describe("Priority level (higher = more urgent)"),
-  },
-  async ({ title, description, priority }) => {
-    const id = `todo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    const { data, error } = await supabase
-      .from("agent_todos")
-      .insert({
-        id,
-        title,
-        description,
-        priority,
-        status: "pending",
-      })
-      .select()
-      .single();
-
-    if (error) {
-      return {
-        content: [
-          { type: "text", text: `Error adding todo: ${error.message}` },
-        ],
-        isError: true,
-      };
-    }
-
-    return {
-      content: [{ type: "text", text: `Created new todo [${id}]: ${title}` }],
-    };
-  },
-);
-
-// Start the server
-async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("Todo DB MCP server running on stdio");
-}
-
-main().catch((error) => {
-  console.error("Fatal error:", error);
-  process.exit(1);
-});
-```
-
 ### Build the MCP Server
 
 ```bash
-cd mcp-servers/todo-db
+cd mcp-servers/autoship-mcp
 npm install
 npm run build
 ```
@@ -499,9 +161,9 @@ npm run build
 ```json
 {
   "mcpServers": {
-    "todo-db": {
+    "autoship-mcp": {
       "command": "node",
-      "args": ["./mcp-servers/todo-db/dist/index.js"],
+      "args": ["./mcp-servers/autoship-mcp/dist/index.js"],
       "env": {
         "SUPABASE_URL": "${SUPABASE_URL}",
         "SUPABASE_SERVICE_KEY": "${SUPABASE_SERVICE_KEY}"
@@ -538,7 +200,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  work-on-todos:
+  work-on-tasks:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -559,7 +221,7 @@ jobs:
 
       - name: Build MCP server
         run: |
-          cd mcp-servers/todo-db
+          cd mcp-servers/autoship-mcp
           npm ci
           npm run build
 
@@ -577,23 +239,23 @@ jobs:
           # Default prompt
           PROMPT="You are an autonomous coding agent. Your job is to:
 
-          1. Use the list_pending_todos tool to see available tasks
-          2. If there are pending todos, pick the highest priority one
-          3. Use claim_todo to mark it as in progress
-          4. Read the todo description carefully and implement the requested changes
+          1. Use the list_pending_tasks tool to see available tasks
+          2. If there are pending tasks, pick the highest priority one
+          3. Use claim_task to mark it as in progress
+          4. Read the task description carefully and implement the requested changes
           5. Create a new git branch with a descriptive name (e.g., 'agent/add-logout-button')
           6. Make the necessary code changes
           7. Commit your changes with a clear commit message
-          8. Use complete_todo to mark the task as done, including the branch name
-          9. If you encounter an error you cannot resolve, use fail_todo with a clear explanation
+          8. Use complete_task to mark the task as done, including the branch name
+          9. If you encounter an error you cannot resolve, use fail_task with a clear explanation
 
           Important guidelines:
-          - Only work on ONE todo per run
+          - Only work on ONE task per run
           - Make minimal, focused changes
           - Write clean, well-tested code
-          - If a task is unclear, mark it as failed with questions rather than guessing
+          - If a task is unclear, use ask_question to get clarification
 
-          Start by listing the pending todos."
+          Start by listing the pending tasks."
 
           # Use override if provided
           if [ -n "${{ inputs.prompt_override }}" ]; then
@@ -615,7 +277,7 @@ jobs:
               --title "$(git log -1 --pretty=%s)" \
               --body "This PR was created by the Claude Agent.
 
-              See the agent_todos table for task details." \
+              See the agent_tasks table for task details." \
               --base main \
               --head "$CURRENT_BRANCH"
           else
@@ -637,7 +299,7 @@ Add these secrets to your repository (Settings → Secrets and variables → Act
 | `SUPABASE_URL`         | Supabase project URL (e.g., `https://xxx.supabase.co`) |
 | `SUPABASE_SERVICE_KEY` | Supabase service role key (NOT the anon key)           |
 
-**Important**: Use the service role key, not the anon key. The service role key bypasses RLS and is required for the agent to access `agent_todos`.
+**Important**: Use the service role key, not the anon key. The service role key bypasses RLS and is required for the agent to access `agent_tasks`.
 
 ---
 
@@ -651,47 +313,47 @@ export SUPABASE_URL="https://your-project.supabase.co"
 export SUPABASE_SERVICE_KEY="your-service-key"
 
 # Run the server (it communicates via stdio, so this will just hang waiting for input)
-node mcp-servers/todo-db/dist/index.js
+node mcp-servers/autoship-mcp/dist/index.js
 ```
 
 ### 2. Test with Claude Code locally
 
 ```bash
-# Add a test todo via Supabase dashboard or SQL:
-# INSERT INTO agent_todos (id, title, description, priority)
+# Add a test task via Supabase dashboard or SQL:
+# INSERT INTO agent_tasks (id, title, description, priority)
 # VALUES ('test-001', 'Add hello world', 'Add a console.log("Hello World") to src/main.tsx', 5);
 
 # Run Claude with the MCP server
-claude "Use the todo-db tools to list pending todos and tell me what you see"
+claude "Use the autoship-mcp tools to list pending tasks and tell me what you see"
 ```
 
 ### 3. Full local test
 
 ```bash
-claude --print "List pending todos from the database using the todo-db tools. If there are any, claim the highest priority one and implement it."
+claude --print "List pending tasks from the database using the autoship-mcp tools. If there are any, claim the highest priority one and implement it."
 ```
 
 ---
 
-## Usage: Adding Todos
+## Usage: Adding Tasks
 
 ### Via Supabase Dashboard
 
-Go to Table Editor → agent_todos → Insert row
+Go to Table Editor → agent_tasks → Insert row
 
 ### Via SQL
 
 ```sql
-INSERT INTO agent_todos (id, title, description, priority) VALUES
-  ('todo-001', 'Add dark mode toggle', 'Add a dark mode toggle to the settings page. Store preference in localStorage.', 5),
-  ('todo-002', 'Fix budget rounding', 'Budget amounts sometimes show too many decimal places. Round to 2 places.', 3);
+INSERT INTO agent_tasks (id, title, description, priority) VALUES
+  ('task-001', 'Add dark mode toggle', 'Add a dark mode toggle to the settings page. Store preference in localStorage.', 5),
+  ('task-002', 'Fix budget rounding', 'Budget amounts sometimes show too many decimal places. Round to 2 places.', 3);
 ```
 
 ### Via API (e.g., from another app)
 
 ```typescript
-const { data, error } = await supabase.from("agent_todos").insert({
-  id: `todo_${Date.now()}`,
+const { data, error } = await supabase.from("agent_tasks").insert({
+  id: `task_${Date.now()}`,
   title: "Implement feature X",
   description: "Detailed description of what needs to be done...",
   priority: 5,
@@ -707,18 +369,18 @@ const { data, error } = await supabase.from("agent_todos").insert({
 ```sql
 -- Recent activity
 SELECT id, title, status, started_at, completed_at, branch_name
-FROM agent_todos
+FROM agent_tasks
 ORDER BY updated_at DESC
 LIMIT 10;
 
 -- Failed tasks that need attention
 SELECT id, title, error_message, created_at
-FROM agent_todos
+FROM agent_tasks
 WHERE status = 'failed';
 
 -- In-progress tasks (might be stuck)
 SELECT id, title, started_at
-FROM agent_todos
+FROM agent_tasks
 WHERE status = 'in_progress'
 AND started_at < NOW() - INTERVAL '1 hour';
 ```
@@ -746,7 +408,7 @@ Check the Actions tab in your repository to see Claude's output for each run.
 ## Cost Estimation
 
 - Each Claude Code run uses API tokens based on context length and output
-- A typical todo might cost $0.10-$1.00 depending on complexity
+- A typical task might cost $0.10-$1.00 depending on complexity
 - With 4 runs/day, expect roughly $10-30/month (varies widely by task complexity)
 - Monitor your Anthropic dashboard for actual usage
 
@@ -766,6 +428,7 @@ Autoship provides drop-in React components that let users submit feedback and tr
 │   ├── AutoshipButton.tsx
 │   ├── TaskDialog.tsx
 │   ├── TaskList.tsx
+│   ├── TaskDetailDialog.tsx
 │   ├── QuestionDialog.tsx
 │   └── hooks/
 │       ├── useAutoship.ts
@@ -803,801 +466,6 @@ That's it. Users now see a floating button to submit feedback, and can track the
 
 ---
 
-### Component: `AutoshipProvider`
-
-Wraps your app and provides Supabase context for all Autoship components.
-
-```tsx
-// src/AutoshipProvider.tsx
-import React, { createContext, useContext, useMemo } from "react";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-
-interface AutoshipContextValue {
-  supabase: SupabaseClient;
-  userId?: string;
-}
-
-const AutoshipContext = createContext<AutoshipContextValue | null>(null);
-
-export function useAutoshipContext() {
-  const ctx = useContext(AutoshipContext);
-  if (!ctx)
-    throw new Error("useAutoshipContext must be used within AutoshipProvider");
-  return ctx;
-}
-
-interface AutoshipProviderProps {
-  supabaseUrl: string;
-  supabaseAnonKey: string;
-  userId?: string; // Optional: associate tasks with a user
-  children: React.ReactNode;
-}
-
-export function AutoshipProvider({
-  supabaseUrl,
-  supabaseAnonKey,
-  userId,
-  children,
-}: AutoshipProviderProps) {
-  const supabase = useMemo(
-    () => createClient(supabaseUrl, supabaseAnonKey),
-    [supabaseUrl, supabaseAnonKey],
-  );
-
-  return (
-    <AutoshipContext.Provider value={{ supabase, userId }}>
-      {children}
-    </AutoshipContext.Provider>
-  );
-}
-```
-
----
-
-### Component: `AutoshipButton`
-
-A floating action button that opens the task dialog. Positioned in the bottom-right corner by default.
-
-```tsx
-// src/AutoshipButton.tsx
-import React, { useState } from "react";
-import { TaskDialog } from "./TaskDialog";
-import { TaskList } from "./TaskList";
-
-interface AutoshipButtonProps {
-  position?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
-  showTaskList?: boolean; // Show list of existing tasks
-}
-
-export function AutoshipButton({
-  position = "bottom-right",
-  showTaskList = true,
-}: AutoshipButtonProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [view, setView] = useState<"menu" | "new" | "list">("menu");
-
-  const positionStyles: Record<string, React.CSSProperties> = {
-    "bottom-right": { bottom: 20, right: 20 },
-    "bottom-left": { bottom: 20, left: 20 },
-    "top-right": { top: 20, right: 20 },
-    "top-left": { top: 20, left: 20 },
-  };
-
-  return (
-    <>
-      {/* Floating Button */}
-      <button
-        onClick={() => setIsOpen(true)}
-        style={{
-          position: "fixed",
-          ...positionStyles[position],
-          width: 56,
-          height: 56,
-          borderRadius: "50%",
-          backgroundColor: "#6366f1",
-          color: "white",
-          border: "none",
-          cursor: "pointer",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 24,
-          zIndex: 9999,
-        }}
-        aria-label="Open Autoship"
-      >
-        +
-      </button>
-
-      {/* Modal */}
-      {isOpen && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            backgroundColor: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 10000,
-          }}
-          onClick={() => {
-            setIsOpen(false);
-            setView("menu");
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: 12,
-              padding: 24,
-              minWidth: 400,
-              maxWidth: "90vw",
-              maxHeight: "80vh",
-              overflow: "auto",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {view === "menu" && (
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: 12 }}
-              >
-                <h2 style={{ margin: 0 }}>Autoship</h2>
-                <button onClick={() => setView("new")}>
-                  Submit New Request
-                </button>
-                {showTaskList && (
-                  <button onClick={() => setView("list")}>
-                    View My Requests
-                  </button>
-                )}
-              </div>
-            )}
-            {view === "new" && (
-              <TaskDialog
-                onClose={() => {
-                  setIsOpen(false);
-                  setView("menu");
-                }}
-                onBack={() => setView("menu")}
-              />
-            )}
-            {view === "list" && <TaskList onBack={() => setView("menu")} />}
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-```
-
----
-
-### Component: `TaskDialog`
-
-The form for submitting a new task/feature request.
-
-```tsx
-// src/TaskDialog.tsx
-import React, { useState } from "react";
-import { useAutoshipContext } from "./AutoshipProvider";
-
-interface TaskDialogProps {
-  onClose: () => void;
-  onBack: () => void;
-}
-
-export function TaskDialog({ onClose, onBack }: TaskDialogProps) {
-  const { supabase, userId } = useAutoshipContext();
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim() || !description.trim()) return;
-
-    setIsSubmitting(true);
-    try {
-      const id = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      const { error } = await supabase.from("agent_todos").insert({
-        id,
-        title: title.trim(),
-        description: description.trim(),
-        priority: 0,
-        status: "pending",
-        submitted_by: userId || null,
-      });
-
-      if (error) throw error;
-
-      setSubmitted(true);
-      setTimeout(() => onClose(), 2000);
-    } catch (err) {
-      console.error("Failed to submit task:", err);
-      alert("Failed to submit. Please try again.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  if (submitted) {
-    return (
-      <div style={{ textAlign: "center", padding: 20 }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>✓</div>
-        <h3>Request Submitted!</h3>
-        <p>We'll get to work on this soon.</p>
-      </div>
-    );
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
-        <button type="button" onClick={onBack} style={{ marginRight: 12 }}>
-          ←
-        </button>
-        <h2 style={{ margin: 0 }}>New Request</h2>
-      </div>
-
-      <div style={{ marginBottom: 16 }}>
-        <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>
-          Title
-        </label>
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="e.g., Add dark mode"
-          style={{
-            width: "100%",
-            padding: 8,
-            borderRadius: 6,
-            border: "1px solid #ddd",
-          }}
-          required
-        />
-      </div>
-
-      <div style={{ marginBottom: 16 }}>
-        <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>
-          Description
-        </label>
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Describe what you'd like in detail..."
-          rows={5}
-          style={{
-            width: "100%",
-            padding: 8,
-            borderRadius: 6,
-            border: "1px solid #ddd",
-            resize: "vertical",
-          }}
-          required
-        />
-      </div>
-
-      <button
-        type="submit"
-        disabled={isSubmitting}
-        style={{
-          width: "100%",
-          padding: 12,
-          backgroundColor: "#6366f1",
-          color: "white",
-          border: "none",
-          borderRadius: 6,
-          cursor: isSubmitting ? "not-allowed" : "pointer",
-        }}
-      >
-        {isSubmitting ? "Submitting..." : "Submit Request"}
-      </button>
-    </form>
-  );
-}
-```
-
----
-
-### Component: `TaskList`
-
-Shows the user's submitted tasks and their status. Also surfaces questions from the AI.
-
-```tsx
-// src/TaskList.tsx
-import React, { useEffect, useState } from "react";
-import { useAutoshipContext } from "./AutoshipProvider";
-import { QuestionDialog } from "./QuestionDialog";
-
-interface Task {
-  id: string;
-  title: string;
-  description: string;
-  status: "pending" | "in_progress" | "complete" | "failed" | "needs_info";
-  branch_name: string | null;
-  pr_url: string | null;
-  questions: Question[] | null;
-  created_at: string;
-}
-
-interface Question {
-  id: string;
-  question: string;
-  answer: string | null;
-  asked_at: string;
-}
-
-interface TaskListProps {
-  onBack: () => void;
-}
-
-export function TaskList({ onBack }: TaskListProps) {
-  const { supabase, userId } = useAutoshipContext();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-
-  useEffect(() => {
-    loadTasks();
-  }, []);
-
-  const loadTasks = async () => {
-    setLoading(true);
-    try {
-      let query = supabase
-        .from("agent_todos")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      // If userId is set, only show that user's tasks
-      if (userId) {
-        query = query.eq("submitted_by", userId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      setTasks(data || []);
-    } catch (err) {
-      console.error("Failed to load tasks:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const statusColors: Record<string, string> = {
-    pending: "#f59e0b",
-    in_progress: "#3b82f6",
-    complete: "#10b981",
-    failed: "#ef4444",
-    needs_info: "#8b5cf6",
-  };
-
-  const statusLabels: Record<string, string> = {
-    pending: "Pending",
-    in_progress: "In Progress",
-    complete: "Complete",
-    failed: "Failed",
-    needs_info: "Needs Info",
-  };
-
-  if (selectedTask) {
-    return (
-      <QuestionDialog
-        task={selectedTask}
-        onBack={() => {
-          setSelectedTask(null);
-          loadTasks();
-        }}
-        onAnswered={loadTasks}
-      />
-    );
-  }
-
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
-        <button type="button" onClick={onBack} style={{ marginRight: 12 }}>
-          ←
-        </button>
-        <h2 style={{ margin: 0 }}>My Requests</h2>
-      </div>
-
-      {loading ? (
-        <p>Loading...</p>
-      ) : tasks.length === 0 ? (
-        <p style={{ color: "#666" }}>No requests yet.</p>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {tasks.map((task) => (
-            <div
-              key={task.id}
-              style={{
-                padding: 12,
-                border: "1px solid #e5e7eb",
-                borderRadius: 8,
-                cursor: task.status === "needs_info" ? "pointer" : "default",
-              }}
-              onClick={() =>
-                task.status === "needs_info" && setSelectedTask(task)
-              }
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "start",
-                }}
-              >
-                <h4 style={{ margin: 0 }}>{task.title}</h4>
-                <span
-                  style={{
-                    backgroundColor: statusColors[task.status],
-                    color: "white",
-                    padding: "2px 8px",
-                    borderRadius: 12,
-                    fontSize: 12,
-                  }}
-                >
-                  {statusLabels[task.status]}
-                </span>
-              </div>
-
-              <p style={{ margin: "8px 0", fontSize: 14, color: "#666" }}>
-                {task.description.length > 100
-                  ? task.description.slice(0, 100) + "..."
-                  : task.description}
-              </p>
-
-              {task.status === "needs_info" && (
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: 12,
-                    color: "#8b5cf6",
-                    fontWeight: 500,
-                  }}
-                >
-                  Click to answer questions
-                </p>
-              )}
-
-              {task.pr_url && (
-                <a
-                  href={task.pr_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ fontSize: 12, color: "#3b82f6" }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  View Pull Request →
-                </a>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-```
-
----
-
-### Component: `QuestionDialog`
-
-Allows users to answer clarifying questions from the AI agent.
-
-```tsx
-// src/QuestionDialog.tsx
-import React, { useState } from "react";
-import { useAutoshipContext } from "./AutoshipProvider";
-
-interface Question {
-  id: string;
-  question: string;
-  answer: string | null;
-  asked_at: string;
-}
-
-interface Task {
-  id: string;
-  title: string;
-  questions: Question[] | null;
-}
-
-interface QuestionDialogProps {
-  task: Task;
-  onBack: () => void;
-  onAnswered: () => void;
-}
-
-export function QuestionDialog({
-  task,
-  onBack,
-  onAnswered,
-}: QuestionDialogProps) {
-  const { supabase } = useAutoshipContext();
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const unansweredQuestions = (task.questions || []).filter((q) => !q.answer);
-
-  const handleSubmit = async () => {
-    setIsSubmitting(true);
-    try {
-      // Update questions with answers
-      const updatedQuestions = (task.questions || []).map((q) => ({
-        ...q,
-        answer: answers[q.id] || q.answer,
-        answered_at: answers[q.id] ? new Date().toISOString() : null,
-      }));
-
-      // Check if all questions are now answered
-      const allAnswered = updatedQuestions.every((q) => q.answer);
-
-      const { error } = await supabase
-        .from("agent_todos")
-        .update({
-          questions: updatedQuestions,
-          status: allAnswered ? "pending" : "needs_info", // Move back to pending if all answered
-        })
-        .eq("id", task.id);
-
-      if (error) throw error;
-
-      onAnswered();
-      onBack();
-    } catch (err) {
-      console.error("Failed to submit answers:", err);
-      alert("Failed to submit. Please try again.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
-        <button type="button" onClick={onBack} style={{ marginRight: 12 }}>
-          ←
-        </button>
-        <h2 style={{ margin: 0 }}>Questions for: {task.title}</h2>
-      </div>
-
-      <p style={{ color: "#666", marginBottom: 16 }}>
-        The AI needs some clarification before proceeding. Please answer the
-        questions below.
-      </p>
-
-      {unansweredQuestions.length === 0 ? (
-        <p>All questions have been answered!</p>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {unansweredQuestions.map((q, index) => (
-            <div key={q.id}>
-              <label
-                style={{ display: "block", marginBottom: 4, fontWeight: 500 }}
-              >
-                {index + 1}. {q.question}
-              </label>
-              <textarea
-                value={answers[q.id] || ""}
-                onChange={(e) =>
-                  setAnswers({ ...answers, [q.id]: e.target.value })
-                }
-                placeholder="Your answer..."
-                rows={3}
-                style={{
-                  width: "100%",
-                  padding: 8,
-                  borderRadius: 6,
-                  border: "1px solid #ddd",
-                  resize: "vertical",
-                }}
-              />
-            </div>
-          ))}
-
-          <button
-            onClick={handleSubmit}
-            disabled={isSubmitting || Object.keys(answers).length === 0}
-            style={{
-              padding: 12,
-              backgroundColor: "#6366f1",
-              color: "white",
-              border: "none",
-              borderRadius: 6,
-              cursor: isSubmitting ? "not-allowed" : "pointer",
-            }}
-          >
-            {isSubmitting ? "Submitting..." : "Submit Answers"}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-```
-
----
-
-### Updated Database Schema for Q&A
-
-Add these columns to the `agent_todos` table:
-
-```sql
--- Add to the migration or run separately
-ALTER TABLE agent_todos
-  ADD COLUMN IF NOT EXISTS submitted_by TEXT,
-  ADD COLUMN IF NOT EXISTS questions JSONB DEFAULT '[]';
-
--- Index for user's tasks
-CREATE INDEX IF NOT EXISTS idx_agent_todos_submitted_by ON agent_todos(submitted_by);
-
--- RLS policy for users to see their own tasks (using anon key)
-CREATE POLICY "Users can view their own tasks"
-    ON agent_todos
-    FOR SELECT
-    USING (submitted_by = auth.uid()::text OR submitted_by IS NULL);
-
-CREATE POLICY "Users can insert tasks"
-    ON agent_todos
-    FOR INSERT
-    WITH CHECK (true);
-
-CREATE POLICY "Users can update their own tasks"
-    ON agent_todos
-    FOR UPDATE
-    USING (submitted_by = auth.uid()::text);
-```
-
-The `questions` column stores an array of questions:
-
-```json
-[
-  {
-    "id": "q_123",
-    "question": "Should the dark mode toggle persist across sessions?",
-    "answer": null,
-    "asked_at": "2026-01-18T10:00:00Z",
-    "answered_at": null
-  }
-]
-```
-
----
-
-### MCP Server: Ask Question Tool
-
-Add this tool to the MCP server so Claude can ask clarifying questions:
-
-```typescript
-// Add to mcp-servers/todo-db/src/index.ts
-
-server.tool(
-  "ask_question",
-  "Ask a clarifying question about a todo. The user will be notified and can answer via the UI.",
-  {
-    todo_id: z.string().describe("The todo ID"),
-    question: z.string().describe("The question to ask the user"),
-  },
-  async ({ todo_id, question }) => {
-    // First, get the current todo
-    const { data: todo, error: fetchError } = await supabase
-      .from("agent_todos")
-      .select("questions")
-      .eq("id", todo_id)
-      .single();
-
-    if (fetchError) {
-      return {
-        content: [
-          { type: "text", text: `Error fetching todo: ${fetchError.message}` },
-        ],
-        isError: true,
-      };
-    }
-
-    const questionId = `q_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const newQuestion = {
-      id: questionId,
-      question,
-      answer: null,
-      asked_at: new Date().toISOString(),
-      answered_at: null,
-    };
-
-    const existingQuestions = todo.questions || [];
-    const updatedQuestions = [...existingQuestions, newQuestion];
-
-    const { error: updateError } = await supabase
-      .from("agent_todos")
-      .update({
-        questions: updatedQuestions,
-        status: "needs_info",
-      })
-      .eq("id", todo_id);
-
-    if (updateError) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error asking question: ${updateError.message}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Question asked. Todo marked as 'needs_info'. The user will be prompted to answer: "${question}"`,
-        },
-      ],
-    };
-  },
-);
-
-server.tool(
-  "check_answers",
-  "Check if a todo has any unanswered questions or newly provided answers.",
-  {
-    todo_id: z.string().describe("The todo ID"),
-  },
-  async ({ todo_id }) => {
-    const { data, error } = await supabase
-      .from("agent_todos")
-      .select("questions, status")
-      .eq("id", todo_id)
-      .single();
-
-    if (error) {
-      return {
-        content: [
-          { type: "text", text: `Error fetching todo: ${error.message}` },
-        ],
-        isError: true,
-      };
-    }
-
-    const questions = data.questions || [];
-    const unanswered = questions.filter((q: any) => !q.answer);
-    const answered = questions.filter((q: any) => q.answer);
-
-    if (questions.length === 0) {
-      return {
-        content: [
-          { type: "text", text: "No questions have been asked for this todo." },
-        ],
-      };
-    }
-
-    let response = `Questions for this todo:\n\n`;
-
-    for (const q of questions) {
-      response += `Q: ${q.question}\n`;
-      response += q.answer ? `A: ${q.answer}\n\n` : `A: (awaiting answer)\n\n`;
-    }
-
-    response += `Status: ${unanswered.length} unanswered, ${answered.length} answered`;
-
-    return {
-      content: [{ type: "text", text: response }],
-    };
-  },
-);
-```
-
----
-
 ### Hooks for Custom Integrations
 
 ```tsx
@@ -1615,7 +483,7 @@ export function useAutoship() {
     const id = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const { data, error } = await supabase
-      .from("agent_todos")
+      .from("agent_tasks")
       .insert({
         id,
         title,
@@ -1648,13 +516,13 @@ export function useTasks() {
 
     // Subscribe to realtime updates
     const subscription = supabase
-      .channel("agent_todos_changes")
+      .channel("agent_tasks_changes")
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
-          table: "agent_todos",
+          table: "agent_tasks",
           filter: userId ? `submitted_by=eq.${userId}` : undefined,
         },
         () => {
@@ -1670,8 +538,19 @@ export function useTasks() {
 
   const loadTasks = async () => {
     let query = supabase
-      .from("agent_todos")
-      .select("*")
+      .from("agent_tasks")
+      .select(
+        `
+        *,
+        task_questions (
+          id,
+          question,
+          answer,
+          asked_at,
+          answered_at
+        )
+      `,
+      )
       .order("created_at", { ascending: false });
 
     if (userId) {
@@ -1697,6 +576,7 @@ export { AutoshipProvider, useAutoshipContext } from "./AutoshipProvider";
 export { AutoshipButton } from "./AutoshipButton";
 export { TaskDialog } from "./TaskDialog";
 export { TaskList } from "./TaskList";
+export { TaskDetailDialog } from "./TaskDetailDialog";
 export { QuestionDialog } from "./QuestionDialog";
 export { useAutoship } from "./hooks/useAutoship";
 export { useTasks } from "./hooks/useTasks";
@@ -1711,7 +591,7 @@ export { useTasks } from "./hooks/useTasks";
 3. [ ] Build and test the MCP server locally
 4. [ ] Add the GitHub secrets
 5. [ ] Create the GitHub Actions workflow
-6. [ ] Add a test todo and trigger the workflow manually
+6. [ ] Add a test task and trigger the workflow manually
 7. [ ] Review the PR created by the agent
 8. [ ] Create the `@autoship/react` package
 9. [ ] Publish to npm

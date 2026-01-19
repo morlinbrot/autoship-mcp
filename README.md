@@ -73,21 +73,21 @@ export SUPABASE_URL="https://your-project.supabase.co"
 export SUPABASE_SERVICE_KEY="your-service-key"
 
 # Test the MCP tools
-claude "Use the autoship-mcp tools to list pending todos"
+claude "Use the autoship-mcp tools to list pending tasks"
 ```
 
 ## Adding Tasks
 
 ### Via Supabase Dashboard
 
-Go to Table Editor > agent_todos > Insert row
+Go to Table Editor > agent_tasks > Insert row
 
 ### Via SQL
 
 ```sql
-INSERT INTO agent_todos (id, title, description, priority) VALUES
-  ('todo-001', 'Add dark mode toggle', 'Add a dark mode toggle to the settings page. Store preference in localStorage.', 5),
-  ('todo-002', 'Fix button alignment', 'The submit button on the contact form is misaligned on mobile.', 3);
+INSERT INTO agent_tasks (id, title, description, priority) VALUES
+  ('task-001', 'Add dark mode toggle', 'Add a dark mode toggle to the settings page. Store preference in localStorage.', 5),
+  ('task-002', 'Fix button alignment', 'The submit button on the contact form is misaligned on mobile.', 3);
 ```
 
 ### Via API (from your app)
@@ -97,8 +97,8 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-await supabase.from("agent_todos").insert({
-  id: `todo_${Date.now()}`,
+await supabase.from("agent_tasks").insert({
+  id: `task_${Date.now()}`,
   title: "Implement feature X",
   description: "Detailed description of what needs to be done...",
   priority: 5,
@@ -111,29 +111,29 @@ Tag tasks with categories for organization:
 
 ```sql
 -- Create categories
-INSERT INTO todo_categories (id, name, description, color) VALUES
+INSERT INTO task_categories (id, name, description, color) VALUES
   ('cat-bug', 'bug', 'Bug fixes', '#FF0000'),
   ('cat-feature', 'feature', 'New features', '#00FF00'),
   ('cat-refactor', 'refactor', 'Code improvements', '#0000FF');
 
--- Assign category to a todo
-INSERT INTO todo_category_assignments (todo_id, category_id) VALUES
-  ('todo-001', 'cat-feature');
+-- Assign category to a task
+INSERT INTO task_category_assignments (task_id, category_id) VALUES
+  ('task-001', 'cat-feature');
 ```
 
 ## Two-Way Communication
 
-When Claude needs clarification, it will ask a question and block the task:
+When Claude needs clarification, it will ask a question and mark the task as needing info:
 
 ```sql
 -- Check for unanswered questions
-SELECT q.*, t.title as todo_title
-FROM todo_questions q
-JOIN agent_todos t ON t.id = q.todo_id
+SELECT q.*, t.title as task_title
+FROM task_questions q
+JOIN agent_tasks t ON t.id = q.task_id
 WHERE q.answer IS NULL;
 
 -- Answer a question
-UPDATE todo_questions
+UPDATE task_questions
 SET answer = 'Use the existing Button component from src/components/ui',
     answered_at = NOW()
 WHERE id = 'q_xxx';
@@ -174,20 +174,20 @@ You can manually trigger the agent from the GitHub Actions tab, optionally with 
 ```sql
 -- Recent activity
 SELECT id, title, status, started_at, completed_at, branch_name
-FROM agent_todos
+FROM agent_tasks
 ORDER BY updated_at DESC
 LIMIT 10;
 
 -- Failed tasks
 SELECT id, title, error_message, created_at
-FROM agent_todos
+FROM agent_tasks
 WHERE status = 'failed';
 
--- Blocked tasks (waiting for answers)
+-- Tasks waiting for answers
 SELECT t.id, t.title, q.question
-FROM agent_todos t
-JOIN todo_questions q ON q.todo_id = t.id
-WHERE t.status = 'blocked' AND q.answer IS NULL;
+FROM agent_tasks t
+JOIN task_questions q ON q.task_id = t.id
+WHERE t.status = 'needs_info' AND q.answer IS NULL;
 ```
 
 ### GitHub Actions Logs
@@ -196,21 +196,21 @@ Check the Actions tab in your repository to see Claude's output for each run.
 
 ## Available MCP Tools
 
-| Tool                       | Description                                         |
-| -------------------------- | --------------------------------------------------- |
-| `list_pending_todos`       | List all pending todos by priority                  |
-| `get_todo`                 | Get full details including categories and questions |
-| `claim_todo`               | Mark a todo as in_progress                          |
-| `complete_todo`            | Mark as complete with branch name                   |
-| `fail_todo`                | Mark as failed with error message                   |
-| `add_todo`                 | Create new todos                                    |
-| `list_categories`          | List all categories                                 |
-| `create_category`          | Create a new category                               |
-| `assign_category`          | Tag a todo with a category                          |
-| `ask_question`             | Ask a clarifying question (blocks the todo)         |
-| `get_unanswered_questions` | List all unanswered questions                       |
-| `check_answered_questions` | Check answers for a specific todo                   |
-| `unblock_todo`             | Move a blocked todo back to pending                 |
+| Tool                       | Description                                          |
+| -------------------------- | ---------------------------------------------------- |
+| `list_pending_tasks`       | List all pending tasks by priority                   |
+| `get_task`                 | Get full details including categories and questions  |
+| `claim_task`               | Mark a task as in_progress                           |
+| `complete_task`            | Mark as complete with branch name                    |
+| `fail_task`                | Mark as failed with error message                    |
+| `add_task`                 | Create new tasks                                     |
+| `list_categories`          | List all categories                                  |
+| `create_category`          | Create a new category                                |
+| `assign_category`          | Tag a task with a category                           |
+| `ask_question`             | Ask a clarifying question (marks task as needs_info) |
+| `get_unanswered_questions` | List all unanswered questions                        |
+| `check_answered_questions` | Check answers for a specific task                    |
+| `resume_task`              | Move a needs_info task back to pending               |
 
 ## Security Notes
 

@@ -17,8 +17,17 @@ export function useTasks(): UseTasksResult {
     setLoading(true);
     try {
       let query = supabase
-        .from("agent_todos")
-        .select("*")
+        .from("agent_tasks")
+        .select(`
+          *,
+          task_questions (
+            id,
+            question,
+            answer,
+            asked_at,
+            answered_at
+          )
+        `)
         .order("created_at", { ascending: false });
 
       if (userId) {
@@ -40,13 +49,13 @@ export function useTasks(): UseTasksResult {
 
     // Subscribe to realtime updates
     const channel = supabase
-      .channel("agent_todos_changes")
+      .channel("agent_tasks_changes")
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
-          table: "agent_todos",
+          table: "agent_tasks",
           filter: userId ? `submitted_by=eq.${userId}` : undefined,
         },
         () => {

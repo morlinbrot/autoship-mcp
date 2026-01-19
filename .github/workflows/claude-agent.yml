@@ -18,7 +18,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  work-on-todos:
+  work-on-tasks:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -82,7 +82,7 @@ jobs:
               --title "$(git log -1 --pretty=%s)" \
               --body "This PR was created by the Claude Agent.
 
-          See the agent_todos table in Supabase for task details." \
+          See the agent_tasks table in Supabase for task details." \
               --base main \
               --head "$CURRENT_BRANCH" || echo "PR may already exist"
           else

@@ -10,6 +10,9 @@ export type { TaskDialogProps } from "./TaskDialog";
 export { TaskList } from "./TaskList";
 export type { Question, Task, TaskListProps } from "./TaskList";
 
+export { TaskDetailDialog } from "./TaskDetailDialog";
+export type { TaskDetailDialogProps } from "./TaskDetailDialog";
+
 export { QuestionDialog } from "./QuestionDialog";
 export type { QuestionDialogProps } from "./QuestionDialog";
 

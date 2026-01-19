@@ -27,7 +27,7 @@ export function useAutoship() {
     const id = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const { data, error } = await supabase
-      .from("agent_todos")
+      .from("agent_tasks")
       .insert({
         id,
         title,

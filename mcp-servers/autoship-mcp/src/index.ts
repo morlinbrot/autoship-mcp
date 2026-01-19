@@ -20,7 +20,7 @@ const supabase: SupabaseClient = createClient(
 );
 
 // Types
-interface AgentTodo {
+interface AgentTask {
   id: string;
   title: string;
   description: string;
@@ -31,22 +31,13 @@ interface AgentTodo {
   notes: string | null;
   error_message: string | null;
   submitted_by: string | null;
-  questions: InlineQuestion[] | null;
   created_at: string;
   updated_at: string;
   started_at: string | null;
   completed_at: string | null;
 }
 
-interface InlineQuestion {
-  id: string;
-  question: string;
-  answer: string | null;
-  asked_at: string;
-  answered_at: string | null;
-}
-
-interface TodoCategory {
+interface TaskCategory {
   id: string;
   name: string;
   description: string | null;
@@ -54,9 +45,9 @@ interface TodoCategory {
   created_at: string;
 }
 
-interface TodoQuestion {
+interface TaskQuestion {
   id: string;
-  todo_id: string;
+  task_id: string;
   question: string;
   answer: string | null;
   asked_by: "agent" | "user";
@@ -71,18 +62,18 @@ const server = new McpServer({
 });
 
 // =============================================================================
-// Todo Tools
+// Task Tools
 // =============================================================================
 
-// Tool: List pending todos
+// Tool: List pending tasks
 server.tool(
-  "list_pending_todos",
-  "List all pending todos from the database, ordered by priority (highest first)",
+  "list_pending_tasks",
+  "List all pending tasks from the database, ordered by priority (highest first)",
   {},
   async () => {
     const { data, error } = await supabase
-      .from("agent_todos")
-      .select("*, todo_category_assignments(category_id, todo_categories(name))")
+      .from("agent_tasks")
+      .select("*, task_category_assignments(category_id, task_categories(name))")
       .eq("status", "pending")
       .order("priority", { ascending: false })
       .order("created_at", { ascending: true });
@@ -90,7 +81,7 @@ server.tool(
     if (error) {
       return {
         content: [
-          { type: "text" as const, text: `Error fetching todos: ${error.message}` },
+          { type: "text" as const, text: `Error fetching tasks: ${error.message}` },
         ],
         isError: true,
       };
@@ -98,18 +89,18 @@ server.tool(
 
     if (!data || data.length === 0) {
       return {
-        content: [{ type: "text" as const, text: "No pending todos found." }],
+        content: [{ type: "text" as const, text: "No pending tasks found." }],
       };
     }
 
     const formatted = data
-      .map((todo: AgentTodo & { todo_category_assignments?: Array<{ todo_categories: { name: string } }> }, i: number) => {
-        const categories = todo.todo_category_assignments
-          ?.map((a) => a.todo_categories?.name)
+      .map((task: AgentTask & { task_category_assignments?: Array<{ task_categories: { name: string } }> }, i: number) => {
+        const categories = task.task_category_assignments
+          ?.map((a) => a.task_categories?.name)
           .filter(Boolean)
           .join(", ");
         const categoryStr = categories ? ` [${categories}]` : "";
-        return `${i + 1}. [${todo.id}] (priority: ${todo.priority})${categoryStr} ${todo.title}\n   ${todo.description}`;
+        return `${i + 1}. [${task.id}] (priority: ${task.priority})${categoryStr} ${task.title}\n   ${task.description}`;
       })
       .join("\n\n");
 
@@ -117,31 +108,31 @@ server.tool(
       content: [
         {
           type: "text" as const,
-          text: `Found ${data.length} pending todo(s):\n\n${formatted}`,
+          text: `Found ${data.length} pending task(s):\n\n${formatted}`,
         },
       ],
     };
   }
 );
 
-// Tool: Get todo details
+// Tool: Get task details
 server.tool(
-  "get_todo",
-  "Get full details of a specific todo by ID, including categories and questions",
+  "get_task",
+  "Get full details of a specific task by ID, including categories and questions",
   {
-    todo_id: z.string().describe("The todo ID"),
+    task_id: z.string().describe("The task ID"),
   },
-  async ({ todo_id }) => {
-    const { data: todo, error: todoError } = await supabase
-      .from("agent_todos")
+  async ({ task_id }) => {
+    const { data: task, error: taskError } = await supabase
+      .from("agent_tasks")
       .select("*")
-      .eq("id", todo_id)
+      .eq("id", task_id)
       .single();
 
-    if (todoError) {
+    if (taskError) {
       return {
         content: [
-          { type: "text" as const, text: `Error fetching todo: ${todoError.message}` },
+          { type: "text" as const, text: `Error fetching task: ${taskError.message}` },
         ],
         isError: true,
       };
@@ -149,20 +140,20 @@ server.tool(
 
     // Get categories
     const { data: categories } = await supabase
-      .from("todo_category_assignments")
-      .select("todo_categories(id, name, color)")
-      .eq("todo_id", todo_id);
+      .from("task_category_assignments")
+      .select("task_categories(id, name, color)")
+      .eq("task_id", task_id);
 
     // Get questions
     const { data: questions } = await supabase
-      .from("todo_questions")
+      .from("task_questions")
       .select("*")
-      .eq("todo_id", todo_id)
+      .eq("task_id", task_id)
       .order("asked_at", { ascending: true });
 
     const result = {
-      ...todo,
-      categories: categories?.map((c: unknown) => (c as { todo_categories: TodoCategory }).todo_categories) || [],
+      ...task,
+      categories: categories?.map((c: unknown) => (c as { task_categories: TaskCategory }).task_categories) || [],
       questions: questions || [],
     };
 
@@ -172,21 +163,21 @@ server.tool(
   }
 );
 
-// Tool: Claim a todo (mark as in_progress)
+// Tool: Claim a task (mark as in_progress)
 server.tool(
-  "claim_todo",
-  "Mark a todo as in_progress. Call this before starting work on a todo.",
+  "claim_task",
+  "Mark a task as in_progress. Call this before starting work on a task.",
   {
-    todo_id: z.string().describe("The todo ID to claim"),
+    task_id: z.string().describe("The task ID to claim"),
   },
-  async ({ todo_id }) => {
+  async ({ task_id }) => {
     const { data, error } = await supabase
-      .from("agent_todos")
+      .from("agent_tasks")
       .update({
         status: "in_progress",
         started_at: new Date().toISOString(),
       })
-      .eq("id", todo_id)
+      .eq("id", task_id)
       .eq("status", "pending")
       .select()
       .single();
@@ -194,7 +185,7 @@ server.tool(
     if (error) {
       return {
         content: [
-          { type: "text" as const, text: `Error claiming todo: ${error.message}` },
+          { type: "text" as const, text: `Error claiming task: ${error.message}` },
         ],
         isError: true,
       };
@@ -205,7 +196,7 @@ server.tool(
         content: [
           {
             type: "text" as const,
-            text: `Todo ${todo_id} is not available (may already be claimed or completed).`,
+            text: `Task ${task_id} is not available (may already be claimed or completed).`,
           },
         ],
         isError: true,
@@ -214,38 +205,38 @@ server.tool(
 
     return {
       content: [
-        { type: "text" as const, text: `Successfully claimed todo: ${data.title}` },
+        { type: "text" as const, text: `Successfully claimed task: ${data.title}` },
       ],
     };
   }
 );
 
-// Tool: Complete a todo
+// Tool: Complete a task
 server.tool(
-  "complete_todo",
-  "Mark a todo as complete. Call this after successfully implementing the changes.",
+  "complete_task",
+  "Mark a task as complete. Call this after successfully implementing the changes.",
   {
-    todo_id: z.string().describe("The todo ID"),
+    task_id: z.string().describe("The task ID"),
     branch_name: z.string().describe("The git branch containing the changes"),
     notes: z.string().optional().describe("Implementation notes or summary"),
   },
-  async ({ todo_id, branch_name, notes }) => {
+  async ({ task_id, branch_name, notes }) => {
     const { data, error } = await supabase
-      .from("agent_todos")
+      .from("agent_tasks")
       .update({
         status: "complete",
         branch_name,
         notes: notes || null,
         completed_at: new Date().toISOString(),
       })
-      .eq("id", todo_id)
+      .eq("id", task_id)
       .select()
       .single();
 
     if (error) {
       return {
         content: [
-          { type: "text" as const, text: `Error completing todo: ${error.message}` },
+          { type: "text" as const, text: `Error completing task: ${error.message}` },
         ],
         isError: true,
       };
@@ -255,39 +246,39 @@ server.tool(
       content: [
         {
           type: "text" as const,
-          text: `Todo "${data.title}" marked as complete. Branch: ${branch_name}`,
+          text: `Task "${data.title}" marked as complete. Branch: ${branch_name}`,
         },
       ],
     };
   }
 );
 
-// Tool: Fail a todo
+// Tool: Fail a task
 server.tool(
-  "fail_todo",
-  "Mark a todo as failed. Call this if you cannot complete the task.",
+  "fail_task",
+  "Mark a task as failed. Call this if you cannot complete the task.",
   {
-    todo_id: z.string().describe("The todo ID"),
+    task_id: z.string().describe("The task ID"),
     error_message: z
       .string()
-      .describe("Explanation of why the todo could not be completed"),
+      .describe("Explanation of why the task could not be completed"),
   },
-  async ({ todo_id, error_message }) => {
+  async ({ task_id, error_message }) => {
     const { data, error } = await supabase
-      .from("agent_todos")
+      .from("agent_tasks")
       .update({
         status: "failed",
         error_message,
         completed_at: new Date().toISOString(),
       })
-      .eq("id", todo_id)
+      .eq("id", task_id)
       .select()
       .single();
 
     if (error) {
       return {
         content: [
-          { type: "text" as const, text: `Error updating todo: ${error.message}` },
+          { type: "text" as const, text: `Error updating task: ${error.message}` },
         ],
         isError: true,
       };
@@ -295,18 +286,18 @@ server.tool(
 
     return {
       content: [
-        { type: "text" as const, text: `Todo "${data.title}" marked as failed.` },
+        { type: "text" as const, text: `Task "${data.title}" marked as failed.` },
       ],
     };
   }
 );
 
-// Tool: Add a new todo
+// Tool: Add a new task
 server.tool(
-  "add_todo",
-  "Add a new todo to the queue. Use this for follow-up tasks discovered during implementation.",
+  "add_task",
+  "Add a new task to the queue. Use this for follow-up tasks discovered during implementation.",
   {
-    title: z.string().describe("Short title for the todo"),
+    title: z.string().describe("Short title for the task"),
     description: z
       .string()
       .describe("Detailed description of what needs to be done"),
@@ -320,10 +311,10 @@ server.tool(
       .describe("Optional list of category IDs to assign"),
   },
   async ({ title, description, priority, category_ids }) => {
-    const id = `todo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const id = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const { data, error } = await supabase
-      .from("agent_todos")
+      .from("agent_tasks")
       .insert({
         id,
         title,
@@ -337,7 +328,7 @@ server.tool(
     if (error) {
       return {
         content: [
-          { type: "text" as const, text: `Error adding todo: ${error.message}` },
+          { type: "text" as const, text: `Error adding task: ${error.message}` },
         ],
         isError: true,
       };
@@ -346,14 +337,14 @@ server.tool(
     // Assign categories if provided
     if (category_ids && category_ids.length > 0) {
       const assignments = category_ids.map((category_id) => ({
-        todo_id: id,
+        task_id: id,
         category_id,
       }));
-      await supabase.from("todo_category_assignments").insert(assignments);
+      await supabase.from("task_category_assignments").insert(assignments);
     }
 
     return {
-      content: [{ type: "text" as const, text: `Created new todo [${id}]: ${title}` }],
+      content: [{ type: "text" as const, text: `Created new task [${id}]: ${title}` }],
     };
   }
 );
@@ -365,11 +356,11 @@ server.tool(
 // Tool: List categories
 server.tool(
   "list_categories",
-  "List all available categories for tagging todos",
+  "List all available categories for tagging tasks",
   {},
   async () => {
     const { data, error } = await supabase
-      .from("todo_categories")
+      .from("task_categories")
       .select("*")
       .order("name", { ascending: true });
 
@@ -389,7 +380,7 @@ server.tool(
     }
 
     const formatted = data
-      .map((cat: TodoCategory) => `- [${cat.id}] ${cat.name}${cat.description ? `: ${cat.description}` : ""}`)
+      .map((cat: TaskCategory) => `- [${cat.id}] ${cat.name}${cat.description ? `: ${cat.description}` : ""}`)
       .join("\n");
 
     return {
@@ -406,7 +397,7 @@ server.tool(
 // Tool: Create category
 server.tool(
   "create_category",
-  "Create a new category for tagging todos",
+  "Create a new category for tagging tasks",
   {
     name: z.string().describe("Category name"),
     description: z.string().optional().describe("Category description"),
@@ -416,7 +407,7 @@ server.tool(
     const id = `cat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const { data, error } = await supabase
-      .from("todo_categories")
+      .from("task_categories")
       .insert({
         id,
         name,
@@ -441,18 +432,18 @@ server.tool(
   }
 );
 
-// Tool: Assign category to todo
+// Tool: Assign category to task
 server.tool(
   "assign_category",
-  "Assign a category to a todo",
+  "Assign a category to a task",
   {
-    todo_id: z.string().describe("The todo ID"),
+    task_id: z.string().describe("The task ID"),
     category_id: z.string().describe("The category ID"),
   },
-  async ({ todo_id, category_id }) => {
+  async ({ task_id, category_id }) => {
     const { error } = await supabase
-      .from("todo_category_assignments")
-      .insert({ todo_id, category_id });
+      .from("task_category_assignments")
+      .insert({ task_id, category_id });
 
     if (error) {
       return {
@@ -465,7 +456,7 @@ server.tool(
 
     return {
       content: [
-        { type: "text" as const, text: `Category assigned to todo successfully.` },
+        { type: "text" as const, text: `Category assigned to task successfully.` },
       ],
     };
   }
@@ -475,20 +466,20 @@ server.tool(
 // Question Tools
 // =============================================================================
 
-// Tool: Ask a question about a todo
+// Tool: Ask a question about a task
 server.tool(
   "ask_question",
-  "Ask a clarifying question about a todo. The question will be stored for the user to answer.",
+  "Ask a clarifying question about a task. The question will be stored for the user to answer, and the task will be marked as needing info.",
   {
-    todo_id: z.string().describe("The todo ID"),
+    task_id: z.string().describe("The task ID"),
     question: z.string().describe("The clarifying question to ask"),
   },
-  async ({ todo_id, question }) => {
+  async ({ task_id, question }) => {
     const id = `q_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    const { error } = await supabase.from("todo_questions").insert({
+    const { error } = await supabase.from("task_questions").insert({
       id,
-      todo_id,
+      task_id,
       question,
       asked_by: "agent",
     });
@@ -502,17 +493,17 @@ server.tool(
       };
     }
 
-    // Mark the todo as blocked
+    // Mark the task as needs_info
     await supabase
-      .from("agent_todos")
-      .update({ status: "blocked" })
-      .eq("id", todo_id);
+      .from("agent_tasks")
+      .update({ status: "needs_info" })
+      .eq("id", task_id);
 
     return {
       content: [
         {
           type: "text" as const,
-          text: `Question recorded [${id}]. Todo marked as blocked until answered.\n\nQuestion: ${question}`,
+          text: `Question recorded [${id}]. Task marked as 'needs_info' until answered.\n\nQuestion: ${question}`,
         },
       ],
     };
@@ -522,12 +513,12 @@ server.tool(
 // Tool: Get unanswered questions
 server.tool(
   "get_unanswered_questions",
-  "Get all unanswered questions across todos",
+  "Get all unanswered questions across tasks",
   {},
   async () => {
     const { data, error } = await supabase
-      .from("todo_questions")
-      .select("*, agent_todos(title)")
+      .from("task_questions")
+      .select("*, agent_tasks(title)")
       .is("answer", null)
       .order("asked_at", { ascending: true });
 
@@ -548,8 +539,8 @@ server.tool(
 
     const formatted = data
       .map(
-        (q: TodoQuestion & { agent_todos: { title: string } }) =>
-          `[${q.id}] Todo: ${q.agent_todos.title}\n   Q: ${q.question}`
+        (q: TaskQuestion & { agent_tasks: { title: string } }) =>
+          `[${q.id}] Task: ${q.agent_tasks.title}\n   Q: ${q.question}`
       )
       .join("\n\n");
 
@@ -567,17 +558,16 @@ server.tool(
 // Tool: Check for answered questions
 server.tool(
   "check_answered_questions",
-  "Check if any questions for a specific todo have been answered",
+  "Check if any questions for a specific task have been answered",
   {
-    todo_id: z.string().describe("The todo ID"),
+    task_id: z.string().describe("The task ID"),
   },
-  async ({ todo_id }) => {
+  async ({ task_id }) => {
     const { data, error } = await supabase
-      .from("todo_questions")
+      .from("task_questions")
       .select("*")
-      .eq("todo_id", todo_id)
-      .not("answer", "is", null)
-      .order("answered_at", { ascending: true });
+      .eq("task_id", task_id)
+      .order("asked_at", { ascending: true });
 
     if (error) {
       return {
@@ -590,192 +580,24 @@ server.tool(
 
     if (!data || data.length === 0) {
       return {
-        content: [{ type: "text" as const, text: "No answered questions for this todo." }],
+        content: [{ type: "text" as const, text: "No questions for this task." }],
       };
     }
 
-    const formatted = data
-      .map((q: TodoQuestion) => `Q: ${q.question}\nA: ${q.answer}`)
-      .join("\n\n---\n\n");
+    const answered = data.filter((q: TaskQuestion) => q.answer);
+    const unanswered = data.filter((q: TaskQuestion) => !q.answer);
 
-    // Check if all questions are answered
-    const { data: unanswered } = await supabase
-      .from("todo_questions")
-      .select("id")
-      .eq("todo_id", todo_id)
-      .is("answer", null);
+    let response = `Questions for this task:\n\n`;
 
-    const allAnswered = !unanswered || unanswered.length === 0;
-
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: `Answered questions:\n\n${formatted}\n\n${allAnswered ? "All questions have been answered. Todo can be unblocked." : "Some questions are still pending."}`,
-        },
-      ],
-    };
-  }
-);
-
-// Tool: Unblock a todo
-server.tool(
-  "unblock_todo",
-  "Move a blocked todo back to pending status (after questions are answered)",
-  {
-    todo_id: z.string().describe("The todo ID"),
-  },
-  async ({ todo_id }) => {
-    const { data, error } = await supabase
-      .from("agent_todos")
-      .update({ status: "pending" })
-      .eq("id", todo_id)
-      .eq("status", "blocked")
-      .select()
-      .single();
-
-    if (error) {
-      return {
-        content: [
-          { type: "text" as const, text: `Error unblocking todo: ${error.message}` },
-        ],
-        isError: true,
-      };
-    }
-
-    if (!data) {
-      return {
-        content: [
-          { type: "text" as const, text: `Todo ${todo_id} is not blocked.` },
-        ],
-        isError: true,
-      };
-    }
-
-    return {
-      content: [
-        { type: "text" as const, text: `Todo "${data.title}" moved back to pending.` },
-      ],
-    };
-  }
-);
-
-// =============================================================================
-// Inline Question Tools (for React components using JSONB questions column)
-// =============================================================================
-
-// Tool: Ask inline question (stores in JSONB column, for React UI)
-server.tool(
-  "ask_inline_question",
-  "Ask a clarifying question that will be shown in the React UI. The user will answer via the app.",
-  {
-    todo_id: z.string().describe("The todo ID"),
-    question: z.string().describe("The question to ask the user"),
-  },
-  async ({ todo_id, question }) => {
-    // Get the current todo
-    const { data: todo, error: fetchError } = await supabase
-      .from("agent_todos")
-      .select("questions")
-      .eq("id", todo_id)
-      .single();
-
-    if (fetchError) {
-      return {
-        content: [
-          { type: "text" as const, text: `Error fetching todo: ${fetchError.message}` },
-        ],
-        isError: true,
-      };
-    }
-
-    const questionId = `q_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const newQuestion: InlineQuestion = {
-      id: questionId,
-      question,
-      answer: null,
-      asked_at: new Date().toISOString(),
-      answered_at: null,
-    };
-
-    const existingQuestions = (todo.questions as InlineQuestion[]) || [];
-    const updatedQuestions = [...existingQuestions, newQuestion];
-
-    const { error: updateError } = await supabase
-      .from("agent_todos")
-      .update({
-        questions: updatedQuestions,
-        status: "needs_info",
-      })
-      .eq("id", todo_id);
-
-    if (updateError) {
-      return {
-        content: [
-          { type: "text" as const, text: `Error asking question: ${updateError.message}` },
-        ],
-        isError: true,
-      };
-    }
-
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: `Question asked. Todo marked as 'needs_info'. The user will be prompted to answer: "${question}"`,
-        },
-      ],
-    };
-  }
-);
-
-// Tool: Check inline answers
-server.tool(
-  "check_inline_answers",
-  "Check if a todo has any unanswered inline questions or newly provided answers.",
-  {
-    todo_id: z.string().describe("The todo ID"),
-  },
-  async ({ todo_id }) => {
-    const { data, error } = await supabase
-      .from("agent_todos")
-      .select("questions, status")
-      .eq("id", todo_id)
-      .single();
-
-    if (error) {
-      return {
-        content: [
-          { type: "text" as const, text: `Error fetching todo: ${error.message}` },
-        ],
-        isError: true,
-      };
-    }
-
-    const questions = (data.questions as InlineQuestion[]) || [];
-
-    if (questions.length === 0) {
-      return {
-        content: [
-          { type: "text" as const, text: "No inline questions have been asked for this todo." },
-        ],
-      };
-    }
-
-    const unanswered = questions.filter((q) => !q.answer);
-    const answered = questions.filter((q) => q.answer);
-
-    let response = `Inline questions for this todo:\n\n`;
-
-    for (const q of questions) {
+    for (const q of data) {
       response += `Q: ${q.question}\n`;
       response += q.answer ? `A: ${q.answer}\n\n` : `A: (awaiting answer)\n\n`;
     }
 
-    response += `Status: ${unanswered.length} unanswered, ${answered.length} answered`;
+    response += `Status: ${answered.length} answered, ${unanswered.length} unanswered`;
 
     if (unanswered.length === 0 && answered.length > 0) {
-      response += "\n\nAll questions have been answered! You can proceed with the task.";
+      response += "\n\nAll questions have been answered. You can resume the task.";
     }
 
     return {
@@ -784,18 +606,34 @@ server.tool(
   }
 );
 
-// Tool: Resume todo after inline answers
+// Tool: Resume a task after questions are answered
 server.tool(
-  "resume_todo",
-  "Move a 'needs_info' todo back to pending after inline questions are answered",
+  "resume_task",
+  "Move a 'needs_info' task back to pending status after questions are answered",
   {
-    todo_id: z.string().describe("The todo ID"),
+    task_id: z.string().describe("The task ID"),
   },
-  async ({ todo_id }) => {
+  async ({ task_id }) => {
+    // Check if all questions are answered
+    const { data: unanswered } = await supabase
+      .from("task_questions")
+      .select("id")
+      .eq("task_id", task_id)
+      .is("answer", null);
+
+    if (unanswered && unanswered.length > 0) {
+      return {
+        content: [
+          { type: "text" as const, text: `Cannot resume task: ${unanswered.length} question(s) still unanswered.` },
+        ],
+        isError: true,
+      };
+    }
+
     const { data, error } = await supabase
-      .from("agent_todos")
+      .from("agent_tasks")
       .update({ status: "pending" })
-      .eq("id", todo_id)
+      .eq("id", task_id)
       .eq("status", "needs_info")
       .select()
       .single();
@@ -803,7 +641,7 @@ server.tool(
     if (error) {
       return {
         content: [
-          { type: "text" as const, text: `Error resuming todo: ${error.message}` },
+          { type: "text" as const, text: `Error resuming task: ${error.message}` },
         ],
         isError: true,
       };
@@ -812,7 +650,7 @@ server.tool(
     if (!data) {
       return {
         content: [
-          { type: "text" as const, text: `Todo ${todo_id} is not in 'needs_info' status.` },
+          { type: "text" as const, text: `Task ${task_id} is not in 'needs_info' status.` },
         ],
         isError: true,
       };
@@ -820,7 +658,7 @@ server.tool(
 
     return {
       content: [
-        { type: "text" as const, text: `Todo "${data.title}" moved back to pending.` },
+        { type: "text" as const, text: `Task "${data.title}" moved back to pending.` },
       ],
     };
   }
@@ -833,7 +671,7 @@ server.tool(
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Todo DB MCP server running on stdio");
+  console.error("Autoship MCP server running on stdio");
 }
 
 main().catch((error) => {
