@@ -37,7 +37,7 @@ export function AutoshipButton({
           width: 56,
           height: 56,
           borderRadius: "50%",
-          backgroundColor: "#6366f1",
+          backgroundColor: "#10b981",
           color: "white",
           border: "none",
           cursor: "pointer",
@@ -50,7 +50,38 @@ export function AutoshipButton({
         }}
         aria-label="Open Autoship"
       >
-        +
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          {/* Chat bubble */}
+          <path
+            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+          {/* AI spark */}
+          <g>
+            <path
+              d="M18 6l-1.5 1.5L18 9l1.5-1.5L18 6z"
+              fill="currentColor"
+            />
+            <path
+              d="M20.5 3.5l-1 1L20.5 5.5l1-1L20.5 3.5z"
+              fill="currentColor"
+            />
+            <path
+              d="M16.5 2.5l-0.5 0.5L16.5 3.5l0.5-0.5L16.5 2.5z"
+              fill="currentColor"
+            />
+          </g>
+        </svg>
       </button>
 
       {/* Modal */}
@@ -88,7 +119,7 @@ export function AutoshipButton({
                   onClick={() => setView("new")}
                   style={{
                     padding: "12px 16px",
-                    backgroundColor: "#6366f1",
+                    backgroundColor: "#10b981",
                     color: "white",
                     border: "none",
                     borderRadius: 8,
