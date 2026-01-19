@@ -1,5 +1,11 @@
 set dotenv-path := "demo/.env"
 
+build:
+    cd packages/react && npm run build
+
+dev: build
+    cd demo && npm run dev
+
 db:
     supabase db push --db-url $DATABASE_URL
 
