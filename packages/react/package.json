@@ -1,6 +1,6 @@
 {
   "name": "@autoship/react",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -23,7 +23,8 @@
     "cli": "node dist/cli/autoship.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.90.1"
+    "@supabase/supabase-js": "^2.90.1",
+    "postgres": "^3.4.5"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"

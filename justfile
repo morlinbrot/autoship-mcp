@@ -25,3 +25,9 @@ check:
     -H "apikey: $SUPABASE_SERVICE_KEY" \
     -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
     "$VITE_SUPABASE_URL/rest/v1/agent_tasks?status=eq.pending&select=id&limit=1"
+
+dry:
+    cd packages/react && npm publish --access public --dry-run
+
+pub:
+    cd packages/react && npm publish --access public

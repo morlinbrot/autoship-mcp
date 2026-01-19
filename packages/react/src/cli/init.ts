@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import postgres from "postgres";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
@@ -8,8 +8,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 interface CliOptions {
+  databaseUrl?: string;
   supabaseUrl?: string;
-  supabaseServiceKey?: string;
+  dbPassword?: string;
   nonInteractive?: boolean;
 }
 
@@ -47,10 +48,12 @@ function parseArgs(args: string[]): CliOptions {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === "--db-url" && args[i + 1]) {
+    if (arg === "--database-url" && args[i + 1]) {
+      options.databaseUrl = args[++i];
+    } else if (arg === "--supabase-url" && args[i + 1]) {
       options.supabaseUrl = args[++i];
-    } else if (arg === "--service-key" && args[i + 1]) {
-      options.supabaseServiceKey = args[++i];
+    } else if (arg === "--db-password" && args[i + 1]) {
+      options.dbPassword = args[++i];
     } else if (arg === "--non-interactive" || arg === "-y") {
       options.nonInteractive = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -70,24 +73,36 @@ Usage:
   npx autoship init [options]
 
 Options:
-  --db-url <url>        Supabase project URL
-  --service-key <key>   Supabase service role key
+  --database-url <url>  Full PostgreSQL connection URL (includes password)
+  --supabase-url <url>  Supabase project URL (used to construct DATABASE_URL)
+  --db-password <pwd>   Database password (used with --supabase-url)
   -y, --non-interactive Skip confirmation prompts
   -h, --help            Show this help message
 
 Environment Variables:
-  SUPABASE_URL          Supabase project URL (fallback)
-  SUPABASE_SERVICE_KEY  Supabase service role key (fallback)
+  DATABASE_URL          Full PostgreSQL connection URL (preferred)
+  SUPABASE_URL          Supabase project URL (fallback, requires DB_PASSWORD)
+  DB_PASSWORD           Database password (used with SUPABASE_URL)
+
+Connection Methods:
+  1. Provide DATABASE_URL directly (recommended):
+     DATABASE_URL=postgresql://postgres.xxx:[password]@aws-0-region.pooler.supabase.com:6543/postgres
+
+  2. Provide SUPABASE_URL + DB_PASSWORD:
+     The CLI will construct the DATABASE_URL from your Supabase project URL.
 
 Examples:
   # Interactive mode (prompts for credentials)
   npx autoship init
 
-  # With command line arguments
-  npx autoship init --db-url https://xxx.supabase.co --service-key eyJ...
+  # With full database URL
+  npx autoship init --database-url "postgresql://postgres.xxx:password@aws-0-region.pooler.supabase.com:6543/postgres"
+
+  # With Supabase URL + password
+  npx autoship init --supabase-url https://xxx.supabase.co --db-password mypassword
 
   # Using environment variables
-  SUPABASE_URL=https://xxx.supabase.co SUPABASE_SERVICE_KEY=eyJ... npx autoship init
+  DATABASE_URL="postgresql://..." npx autoship init
 `);
 }
 
@@ -148,157 +163,203 @@ async function promptSecret(rl: readline.Interface, question: string): Promise<s
   });
 }
 
-async function getCredentials(options: CliOptions): Promise<{ url: string; serviceKey: string }> {
-  let url = options.supabaseUrl || process.env.SUPABASE_URL || "";
-  let serviceKey = options.supabaseServiceKey || process.env.SUPABASE_SERVICE_KEY || "";
+/**
+ * Constructs a DATABASE_URL from a Supabase project URL and password.
+ *
+ * Supabase URL format: https://[project-ref].supabase.co
+ * Database URL format: postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+ *
+ * Note: We use the transaction pooler (port 6543) for compatibility.
+ * The region is detected from the Supabase URL or defaults to us-east-1.
+ */
+function constructDatabaseUrl(supabaseUrl: string, password: string): string {
+  const url = new URL(supabaseUrl);
+  const hostname = url.hostname; // e.g., "xxx.supabase.co"
+  const projectRef = hostname.split(".")[0];
 
-  if (url && serviceKey) {
-    return { url, serviceKey };
+  if (!projectRef) {
+    throw new Error("Could not extract project reference from Supabase URL");
   }
 
+  // Supabase uses different regional pooler endpoints
+  // Default to us-east-1, but this can be adjusted
+  // The actual region is embedded in the project, but we can't easily detect it
+  // Users can provide DATABASE_URL directly if they need a specific region
+  const region = "us-east-1";
+
+  const encodedPassword = encodeURIComponent(password);
+  return `postgresql://postgres.${projectRef}:${encodedPassword}@aws-0-${region}.pooler.supabase.com:6543/postgres`;
+}
+
+async function getConnectionUrl(options: CliOptions): Promise<string> {
+  // Priority: CLI args > env vars > interactive prompt
+
+  // Check for direct DATABASE_URL first
+  let databaseUrl = options.databaseUrl || process.env.DATABASE_URL;
+  if (databaseUrl) {
+    return databaseUrl;
+  }
+
+  // Check for SUPABASE_URL + DB_PASSWORD combination
+  let supabaseUrl = options.supabaseUrl || process.env.SUPABASE_URL;
+  let dbPassword = options.dbPassword || process.env.DB_PASSWORD;
+
+  if (supabaseUrl && dbPassword) {
+    return constructDatabaseUrl(supabaseUrl, dbPassword);
+  }
+
+  // Interactive mode
   const rl = createReadlineInterface();
 
   try {
     console.log("\n  Autoship Database Setup\n");
     console.log("  This will create the required tables in your Supabase database.\n");
+    console.log("  You can provide credentials in two ways:");
+    console.log("    1. Full DATABASE_URL (includes password)");
+    console.log("    2. Supabase URL + database password\n");
 
-    if (!url) {
-      url = await prompt(rl, "  Supabase URL: ");
+    const choice = await prompt(rl, "  Enter (1) for DATABASE_URL or (2) for Supabase URL + password: ");
+
+    if (choice === "1") {
+      console.log("\n  Find your DATABASE_URL in Supabase Dashboard:");
+      console.log("    Project Settings > Database > Connection string > URI\n");
+      databaseUrl = await promptSecret(rl, "  DATABASE_URL: ");
+      return databaseUrl;
     } else {
-      console.log(`  Supabase URL: ${url}`);
-    }
+      if (!supabaseUrl) {
+        supabaseUrl = await prompt(rl, "\n  Supabase URL (e.g., https://xxx.supabase.co): ");
+      } else {
+        console.log(`\n  Supabase URL: ${supabaseUrl}`);
+      }
 
-    if (!serviceKey) {
-      serviceKey = await promptSecret(rl, "  Supabase Service Key: ");
-    } else {
-      console.log("  Supabase Service Key: [provided]");
-    }
+      if (!dbPassword) {
+        console.log("\n  Find your database password in Supabase Dashboard:");
+        console.log("    Project Settings > Database > Database password\n");
+        dbPassword = await promptSecret(rl, "  Database password: ");
+      }
 
-    return { url, serviceKey };
+      return constructDatabaseUrl(supabaseUrl, dbPassword);
+    }
   } finally {
     rl.close();
   }
 }
 
-function validateCredentials(url: string, serviceKey: string): void {
-  if (!url) {
-    console.error("\n  Error: Supabase URL is required");
-    process.exit(1);
-  }
-
-  if (!serviceKey) {
-    console.error("\n  Error: Supabase Service Key is required");
+function validateDatabaseUrl(databaseUrl: string): void {
+  if (!databaseUrl) {
+    console.error("\n  Error: Database connection URL is required");
     process.exit(1);
   }
 
   try {
-    new URL(url);
+    const url = new URL(databaseUrl);
+    if (!url.protocol.startsWith("postgres")) {
+      throw new Error("Not a PostgreSQL URL");
+    }
   } catch {
-    console.error("\n  Error: Invalid Supabase URL format");
-    process.exit(1);
-  }
-
-  if (!serviceKey.startsWith("eyJ")) {
-    console.error("\n  Error: Service key should be a JWT (starts with 'eyJ')");
-    console.error("  Make sure you're using the service_role key, not the anon key.");
+    console.error("\n  Error: Invalid DATABASE_URL format");
+    console.error("  Expected format: postgresql://user:password@host:port/database");
     process.exit(1);
   }
 }
 
-async function runMigration(url: string, serviceKey: string, migrationSql: string): Promise<void> {
-  console.log("\n  Connecting to Supabase...");
+async function runMigration(databaseUrl: string, migrationSql: string): Promise<void> {
+  console.log("\n  Connecting to database...");
 
-  const supabase = createClient(url, serviceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
+  const sql = postgres(databaseUrl, {
+    ssl: "require",
+    connect_timeout: 10,
   });
 
-  console.log("  Checking database schema...\n");
+  try {
+    // Test the connection
+    await sql`SELECT 1`;
+    console.log("  Connected successfully.\n");
 
-  // First, let's verify the connection by trying to query
-  const { error: connectionError } = await supabase
-    .from("agent_tasks")
-    .select("id")
-    .limit(1);
+    console.log("  Running migrations...\n");
 
-  if (connectionError && connectionError.code === "42P01") {
-    // Table doesn't exist - we need to create it
-    // Since we can't run arbitrary SQL via the REST API, we'll provide instructions
-    console.log("  Tables don't exist yet.\n");
-    console.log("  ============================================================");
-    console.log("  Supabase REST API doesn't support direct SQL execution.");
-    console.log("  Please run the migration manually using one of these options:");
-    console.log("  ============================================================\n");
-    console.log("  Option 1: Supabase Dashboard");
-    console.log("    1. Go to your Supabase project dashboard");
-    console.log("    2. Navigate to SQL Editor");
-    console.log("    3. Copy and paste the contents of: ./autoship-migration.sql\n");
-    console.log("  Option 2: Supabase CLI");
-    console.log("    1. Install Supabase CLI: npm install -g supabase");
-    console.log("    2. Link your project: supabase link --project-ref YOUR_PROJECT_REF");
-    console.log("    3. Copy autoship-migration.sql to supabase/migrations/");
-    console.log("    4. Run: supabase db push\n");
+    // Execute the migration SQL
+    await sql.unsafe(migrationSql);
 
-    // Write the migration file locally for convenience
-    const outputPath = path.join(process.cwd(), "autoship-migration.sql");
-    fs.writeFileSync(outputPath, migrationSql.trim());
-    console.log(`  Migration SQL saved to: ${outputPath}\n`);
+    console.log("  Migrations completed successfully!\n");
 
-    console.log("  After running the migration, run this setup command again to verify.\n");
-    process.exit(0);
-  } else if (connectionError) {
-    console.error(`\n  Error connecting to Supabase: ${connectionError.message}`);
-    process.exit(1);
-  }
+    // Verify the schema
+    console.log("  Verifying database schema...\n");
 
-  // Tables exist - verify the schema
-  console.log("  Verifying database schema...\n");
+    const tables = ["agent_tasks", "task_categories", "task_category_assignments", "task_questions"];
+    let allTablesExist = true;
 
-  const tables = ["agent_tasks", "task_categories", "task_category_assignments", "task_questions"];
-  let allTablesExist = true;
-
-  for (const table of tables) {
-    const { error } = await supabase.from(table).select("*").limit(0);
-    if (error && error.code === "42P01") {
-      console.log(`    [ ] ${table} - NOT FOUND`);
-      allTablesExist = false;
-    } else if (error) {
-      console.log(`    [?] ${table} - Error: ${error.message}`);
-    } else {
-      console.log(`    [x] ${table}`);
+    for (const table of tables) {
+      try {
+        await sql.unsafe(`SELECT 1 FROM ${table} LIMIT 0`);
+        console.log(`    [x] ${table}`);
+      } catch (error) {
+        console.log(`    [ ] ${table} - NOT FOUND`);
+        allTablesExist = false;
+      }
     }
-  }
 
-  if (allTablesExist) {
-    console.log("\n  All tables exist. Your database is ready!\n");
-    console.log("  Next steps:");
-    console.log("    1. Add SUPABASE_URL and SUPABASE_ANON_KEY to your app's environment");
-    console.log("    2. Wrap your app with <AutoshipProvider>");
-    console.log("    3. Add the <AutoshipButton /> component\n");
-    console.log("  Example:");
-    console.log("    import { AutoshipProvider, AutoshipButton } from '@autoship/react';");
-    console.log("");
-    console.log("    function App() {");
-    console.log("      return (");
-    console.log("        <AutoshipProvider");
-    console.log("          supabaseUrl={process.env.SUPABASE_URL}");
-    console.log("          supabaseAnonKey={process.env.SUPABASE_ANON_KEY}");
-    console.log("        >");
-    console.log("          <YourApp />");
-    console.log("          <AutoshipButton />");
-    console.log("        </AutoshipProvider>");
-    console.log("      );");
-    console.log("    }\n");
-  } else {
-    console.log("\n  Some tables are missing. Please run the migration SQL.");
+    if (allTablesExist) {
+      console.log("\n  All tables created. Your database is ready!\n");
+      console.log("  Next steps:");
+      console.log("    1. Add SUPABASE_URL and SUPABASE_ANON_KEY to your app's environment");
+      console.log("    2. Wrap your app with <AutoshipProvider>");
+      console.log("    3. Add the <AutoshipButton /> component\n");
+      console.log("  Example:");
+      console.log("    import { AutoshipProvider, AutoshipButton } from '@autoship/react';");
+      console.log("");
+      console.log("    function App() {");
+      console.log("      return (");
+      console.log("        <AutoshipProvider");
+      console.log("          supabaseUrl={process.env.SUPABASE_URL}");
+      console.log("          supabaseAnonKey={process.env.SUPABASE_ANON_KEY}");
+      console.log("        >");
+      console.log("          <YourApp />");
+      console.log("          <AutoshipButton />");
+      console.log("        </AutoshipProvider>");
+      console.log("      );");
+      console.log("    }\n");
+    } else {
+      console.log("\n  Warning: Some tables may not have been created correctly.");
+      console.log("  Please check the migration output above for errors.\n");
+      process.exit(1);
+    }
+  } catch (error) {
+    const err = error as Error & { code?: string };
 
-    const outputPath = path.join(process.cwd(), "autoship-migration.sql");
-    fs.writeFileSync(outputPath, migrationSql.trim());
-    console.log(`  Migration SQL saved to: ${outputPath}\n`);
+    if (err.code === "28P01") {
+      console.error("\n  Error: Authentication failed. Check your database password.");
+    } else if (err.code === "ENOTFOUND" || err.code === "ECONNREFUSED") {
+      console.error("\n  Error: Could not connect to database. Check your connection URL.");
+    } else if (err.message?.includes("already exists")) {
+      console.log("\n  Schema already exists. Verifying tables...\n");
 
-    process.exit(1);
+      // Verify existing schema
+      const tables = ["agent_tasks", "task_categories", "task_category_assignments", "task_questions"];
+      let allTablesExist = true;
+
+      for (const table of tables) {
+        try {
+          await sql.unsafe(`SELECT 1 FROM ${table} LIMIT 0`);
+          console.log(`    [x] ${table}`);
+        } catch {
+          console.log(`    [ ] ${table} - NOT FOUND`);
+          allTablesExist = false;
+        }
+      }
+
+      if (allTablesExist) {
+        console.log("\n  All tables exist. Your database is ready!\n");
+      } else {
+        console.log("\n  Some tables are missing. You may need to run migrations manually.\n");
+        process.exit(1);
+      }
+    } else {
+      console.error(`\n  Error: ${err.message}`);
+      process.exit(1);
+    }
+  } finally {
+    await sql.end();
   }
 }
 
@@ -309,9 +370,9 @@ export async function run(args: string[]): Promise<void> {
     // Load migrations from the bundled files
     const migrationSql = loadMigrations();
 
-    const { url, serviceKey } = await getCredentials(options);
-    validateCredentials(url, serviceKey);
-    await runMigration(url, serviceKey, migrationSql);
+    const databaseUrl = await getConnectionUrl(options);
+    validateDatabaseUrl(databaseUrl);
+    await runMigration(databaseUrl, migrationSql);
   } catch (error) {
     console.error("\n  Unexpected error:", error);
     process.exit(1);
