@@ -1,6 +1,6 @@
 {
   "name": "@autoship/react",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -17,7 +17,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && npm run copy-migrations",
+    "build": "tsc && cp ../../README.md README.md && npm run copy-migrations",
     "copy-migrations": "mkdir -p dist/migrations && cp ../../supabase/migrations/*.sql dist/migrations/",
     "dev": "tsc --watch",
     "cli": "node dist/cli/autoship.js"
