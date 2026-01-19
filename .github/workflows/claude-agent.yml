@@ -16,6 +16,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  id-token: write
 
 jobs:
   check-pending-tasks:
@@ -63,41 +64,46 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Build MCP server
+        run: |
+          cd mcp-servers/autoship-mcp
+          npm install
+          npm run build
+
       - name: Configure git
         run: |
           git config user.name "Claude Agent"
           git config user.email "claude-agent@users.noreply.github.com"
 
       - name: Run Claude Agent
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: |
-          set -e
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            ${{ inputs.prompt_override || 'You are an autonomous coding agent. Your job is to work on tasks from the task queue.
 
-          # Download the agent script and its package.json
-          mkdir -p /tmp/autoship-agent
+            IMPORTANT: Follow these steps in order:
 
-          echo "Downloading agent script..."
-          curl -fSL https://raw.githubusercontent.com/morlinbrot/autoship-mcp/main/scripts/claude-agent.js -o /tmp/autoship-agent/claude-agent.js
+            1. First, use `mcp__autoship-mcp__list_pending_tasks` to see available tasks
+            2. Pick the highest priority task from the list
+            3. Use `mcp__autoship-mcp__claim_task` to claim it (this prevents other agents from working on it)
+            4. Read the task description carefully
+            5. Create a new git branch for your work (e.g., `agent/add-logout-button`)
+            6. Implement the changes requested in the task
+            7. Commit your changes with a clear commit message
+            8. Use `mcp__autoship-mcp__complete_task` to mark it complete, providing the branch name
 
-          echo "Downloading package.json..."
-          curl -fSL https://raw.githubusercontent.com/morlinbrot/autoship-mcp/main/scripts/package.json -o /tmp/autoship-agent/package.json
+            If you encounter an error or cannot complete the task:
+            - Use `mcp__autoship-mcp__fail_task` to mark it as failed with an explanation
 
-          # Install dependencies
-          echo "Installing dependencies..."
-          cd /tmp/autoship-agent
-          npm install
+            If you need clarification from the user:
+            - Use `mcp__autoship-mcp__ask_question` to ask a question (this will mark the task as needs_info)
 
-          # Run the agent (from the original repo directory)
-          cd $GITHUB_WORKSPACE
-          echo "Starting Claude Agent..."
-          if [ -n "${{ inputs.prompt_override }}" ]; then
-            node /tmp/autoship-agent/claude-agent.js "${{ inputs.prompt_override }}"
-          else
-            node /tmp/autoship-agent/claude-agent.js
-          fi
+            Work autonomously and efficiently. Make sure to test your changes if applicable.' }}
+          claude_args: |
+            --max-turns 50
+            --mcp-config '{"mcpServers":{"autoship-mcp":{"command":"node","args":["./mcp-servers/autoship-mcp/dist/index.js"],"env":{"SUPABASE_URL":"${{ secrets.SUPABASE_URL }}","SUPABASE_SERVICE_KEY":"${{ secrets.SUPABASE_SERVICE_KEY }}"}}}}'
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,mcp__autoship-mcp__list_pending_tasks,mcp__autoship-mcp__get_task,mcp__autoship-mcp__claim_task,mcp__autoship-mcp__complete_task,mcp__autoship-mcp__fail_task,mcp__autoship-mcp__add_task,mcp__autoship-mcp__list_categories,mcp__autoship-mcp__create_category,mcp__autoship-mcp__assign_category,mcp__autoship-mcp__ask_question,mcp__autoship-mcp__get_unanswered_questions,mcp__autoship-mcp__check_answered_questions,mcp__autoship-mcp__resume_task"
 
       - name: Push branch if created
         run: |
