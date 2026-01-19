@@ -1,9 +1,9 @@
 name: Claude Agent
 
 on:
-  # Run every 6 hours
+  # Run every 5 minutes
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: "*/5 * * * *"
 
   # Allow manual trigger
   workflow_dispatch:
@@ -18,8 +18,38 @@ permissions:
   pull-requests: write
 
 jobs:
+  check-pending-tasks:
+    runs-on: ubuntu-latest
+    outputs:
+      has_pending_tasks: ${{ steps.check.outputs.has_pending_tasks }}
+    steps:
+      - name: Check for pending tasks
+        id: check
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "Checking for pending tasks..."
+          RESPONSE=$(curl -s \
+            -H "apikey: $SUPABASE_SERVICE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
+            "$SUPABASE_URL/rest/v1/agent_tasks?status=eq.pending&select=id&limit=1")
+
+          echo "Response: $RESPONSE"
+
+          # Check if response is a non-empty array
+          if [ "$RESPONSE" != "[]" ] && [ -n "$RESPONSE" ]; then
+            echo "Found pending tasks"
+            echo "has_pending_tasks=true" >> $GITHUB_OUTPUT
+          else
+            echo "No pending tasks found"
+            echo "has_pending_tasks=false" >> $GITHUB_OUTPUT
+          fi
+
   work-on-tasks:
     runs-on: ubuntu-latest
+    needs: check-pending-tasks
+    if: needs.check-pending-tasks.outputs.has_pending_tasks == 'true'
     timeout-minutes: 30
 
     steps:
