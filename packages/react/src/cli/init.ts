@@ -70,7 +70,7 @@ function printHelp(): void {
 autoship init - Initialize Autoship database schema
 
 Usage:
-  npx autoship init [options]
+  npx @autoship/react init [options]
 
 Options:
   --database-url <url>  Full PostgreSQL connection URL (includes password)
@@ -93,16 +93,16 @@ Connection Methods:
 
 Examples:
   # Interactive mode (prompts for credentials)
-  npx autoship init
+  npx @autoship/react init
 
   # With full database URL
-  npx autoship init --database-url "postgresql://postgres.xxx:password@aws-0-region.pooler.supabase.com:6543/postgres"
+  npx @autoship/react init --database-url "postgresql://postgres.xxx:password@aws-0-region.pooler.supabase.com:6543/postgres"
 
   # With Supabase URL + password
-  npx autoship init --supabase-url https://xxx.supabase.co --db-password mypassword
+  npx @autoship/react init --supabase-url https://xxx.supabase.co --db-password mypassword
 
   # Using environment variables
-  DATABASE_URL="postgresql://..." npx autoship init
+  DATABASE_URL="postgresql://..." npx @autoship/react init
 `);
 }
 

@@ -26,7 +26,7 @@ Create a new Supabase project (or use an existing one). Get the SUPABASE_URL and
 Run the migrations using the CLI:
 
 ```bash
-npx @autoship init
+npx @autoship/react init
 ```
 
 The CLI will prompt you for credentials. You can provide them in two ways:
@@ -35,20 +35,20 @@ The CLI will prompt you for credentials. You can provide them in two ways:
 
 ```bash
 # Find this in Supabase Dashboard > Project Settings > Database > Connection string > URI
-npx @autoship init --database-url "postgresql://postgres.xxx:password@aws-0-region.pooler.supabase.com:6543/postgres"
+npx @autoship/react init --database-url "postgresql://postgres.xxx:password@aws-0-region.pooler.supabase.com:6543/postgres"
 ```
 
 **Option B: Supabase URL + Database Password**
 
 ```bash
-npx @autoship init --supabase-url https://xxx.supabase.co --db-password yourpassword
+npx @autoship/react init --supabase-url https://xxx.supabase.co --db-password yourpassword
 ```
 
 **Using environment variables:**
 
 ```bash
 # Option A
-DATABASE_URL="postgresql://..." npx @autoship init
+DATABASE_URL="postgresql://..." npx @autoship/react init
 
 # Option B
 SUPABASE_URL="https://xxx.supabase.co" DB_PASSWORD="yourpassword" npx @autoship/react init
