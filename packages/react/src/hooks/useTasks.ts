@@ -9,7 +9,7 @@ export interface UseTasksResult {
 }
 
 export function useTasks(): UseTasksResult {
-  const { supabase, userId } = useAutoshipContext();
+  const { supabase, userId, schema } = useAutoshipContext();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -54,7 +54,7 @@ export function useTasks(): UseTasksResult {
         "postgres_changes",
         {
           event: "*",
-          schema: "public",
+          schema: schema,
           table: "agent_tasks",
           filter: userId ? `submitted_by=eq.${userId}` : undefined,
         },
@@ -67,7 +67,7 @@ export function useTasks(): UseTasksResult {
     return () => {
       channel.unsubscribe();
     };
-  }, [supabase, userId, loadTasks]);
+  }, [supabase, userId, schema, loadTasks]);
 
   return { tasks, loading, refresh: loadTasks };
 }

@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 // Validate environment
@@ -14,9 +14,20 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   process.exit(1);
 }
 
-const supabase: SupabaseClient = createClient(
+/**
+ * The database schema used by Autoship.
+ * All tables are created in this schema to avoid conflicts with other schemas.
+ */
+const AUTOSHIP_SCHEMA = "autoship";
+
+const supabase = createClient(
   SUPABASE_URL,
-  SUPABASE_SERVICE_KEY
+  SUPABASE_SERVICE_KEY,
+  {
+    db: {
+      schema: AUTOSHIP_SCHEMA,
+    },
+  }
 );
 
 // Types

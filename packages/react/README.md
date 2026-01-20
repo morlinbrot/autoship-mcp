@@ -54,7 +54,19 @@ DATABASE_URL="postgresql://..." npx @autoship init
 SUPABASE_URL="https://xxx.supabase.co" DB_PASSWORD="yourpassword" npx @autoship/react init
 ```
 
-### 3. Add React Components (Optional)
+### 3. Expose the Autoship Schema in Supabase
+
+Autoship uses a dedicated `autoship` database schema to avoid conflicts with your existing tables. You need to expose this schema via the Supabase API:
+
+1. Go to your Supabase project dashboard
+2. Navigate to **Project Settings** (gear icon) → **API**
+3. Scroll down to **Data API Settings**
+4. Find **Extra search path** and add `autoship` to the list
+5. Save the changes
+
+This allows the Supabase client to access the `autoship` schema via the REST API.
+
+### 4. Add React Components (Optional)
 
 Install the package:
 
@@ -90,7 +102,7 @@ Available components:
 - `TaskDetailDialog` - View task details and answer questions
 - `QuestionDialog` - Answer clarifying questions from Claude
 
-### 4. Set Up GitHub Actions
+### 5. Set Up GitHub Action
 
 Copy these files into your project:
 
@@ -108,7 +120,7 @@ Add GitHub Secrets (Settings > Secrets and variables > Actions):
 | `SUPABASE_URL`         | Your Supabase project URL (e.g., `https://xxx.supabase.co`) |
 | `SUPABASE_SERVICE_KEY` | Supabase service role key (not the anon key)                |
 
-### 5. Test Locally (Optional)
+### 6. Test Locally (Optional)
 
 Build the MCP server:
 

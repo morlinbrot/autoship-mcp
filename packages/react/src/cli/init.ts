@@ -1,6 +1,6 @@
-import postgres from "postgres";
 import * as fs from "fs";
 import * as path from "path";
+import postgres from "postgres";
 import * as readline from "readline";
 import { fileURLToPath } from "url";
 
@@ -291,16 +291,21 @@ async function runMigration(databaseUrl: string, migrationSql: string): Promise<
 
     for (const table of tables) {
       try {
-        await sql.unsafe(`SELECT 1 FROM ${table} LIMIT 0`);
-        console.log(`    [x] ${table}`);
+        await sql.unsafe(`SELECT 1 FROM autoship.${table} LIMIT 0`);
+        console.log(`    [x] autoship.${table}`);
       } catch (error) {
-        console.log(`    [ ] ${table} - NOT FOUND`);
+        console.log(`    [ ] autoship.${table} - NOT FOUND`);
         allTablesExist = false;
       }
     }
 
     if (allTablesExist) {
-      console.log("\n  All tables created. Your database is ready!\n");
+      console.log("\n  All tables created in the 'autoship' schema.\n");
+      console.log("  IMPORTANT: Expose the schema in Supabase Dashboard:");
+      console.log("    1. Go to Project Settings > API");
+      console.log("    2. Scroll to 'Data API Settings'");
+      console.log("    3. Add 'autoship' to the 'Extra search path'");
+      console.log("    4. Save changes\n");
       console.log("  Next steps:");
       console.log("    1. Add SUPABASE_URL and SUPABASE_ANON_KEY to your app's environment");
       console.log("    2. Wrap your app with <AutoshipProvider>");
@@ -340,10 +345,10 @@ async function runMigration(databaseUrl: string, migrationSql: string): Promise<
 
       for (const table of tables) {
         try {
-          await sql.unsafe(`SELECT 1 FROM ${table} LIMIT 0`);
-          console.log(`    [x] ${table}`);
+          await sql.unsafe(`SELECT 1 FROM autoship.${table} LIMIT 0`);
+          console.log(`    [x] autoship.${table}`);
         } catch {
-          console.log(`    [ ] ${table} - NOT FOUND`);
+          console.log(`    [ ] autoship.${table} - NOT FOUND`);
           allTablesExist = false;
         }
       }
