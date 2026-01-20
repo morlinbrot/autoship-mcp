@@ -35,13 +35,14 @@ The CLI will prompt you for credentials. You can provide them in two ways:
 
 ```bash
 # Find this in Supabase Dashboard > Project Settings > Database > Connection string > URI
-npx @autoship/react init --database-url "postgresql://postgres.xxx:password@aws-0-region.pooler.supabase.com:6543/postgres"
+npx @autoship/react init --database-url "postgresql://postgres:password@db.xxxx.supabase.co:5432/postgres"
 ```
 
-**Option B: Supabase URL + Database Password**
+**Option B: Project Ref + Database Password**
 
 ```bash
-npx @autoship/react init --supabase-url https://xxx.supabase.co --db-password yourpassword
+# Find project ref in Supabase Dashboard > Project Settings > General > Reference ID
+npx @autoship/react init --project-ref abcdefghijklmnop --db-password yourpassword
 ```
 
 **Using environment variables:**
@@ -51,7 +52,7 @@ npx @autoship/react init --supabase-url https://xxx.supabase.co --db-password yo
 DATABASE_URL="postgresql://..." npx @autoship/react init
 
 # Option B
-SUPABASE_URL="https://xxx.supabase.co" DB_PASSWORD="yourpassword" npx @autoship/react init
+SUPABASE_PROJECT_REF="abcdefghijklmnop" DB_PASSWORD="yourpassword" npx @autoship/react init
 ```
 
 ### 3. Expose the Autoship Schema in Supabase

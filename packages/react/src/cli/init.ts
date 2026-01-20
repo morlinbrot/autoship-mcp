@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 
 interface CliOptions {
   databaseUrl?: string;
-  supabaseUrl?: string;
+  projectRef?: string;
   dbPassword?: string;
   nonInteractive?: boolean;
 }
@@ -50,8 +50,8 @@ function parseArgs(args: string[]): CliOptions {
     const arg = args[i];
     if (arg === "--database-url" && args[i + 1]) {
       options.databaseUrl = args[++i];
-    } else if (arg === "--supabase-url" && args[i + 1]) {
-      options.supabaseUrl = args[++i];
+    } else if (arg === "--project-ref" && args[i + 1]) {
+      options.projectRef = args[++i];
     } else if (arg === "--db-password" && args[i + 1]) {
       options.dbPassword = args[++i];
     } else if (arg === "--non-interactive" || arg === "-y") {
@@ -73,36 +73,38 @@ Usage:
   npx @autoship/react init [options]
 
 Options:
-  --database-url <url>  Full PostgreSQL connection URL (includes password)
-  --supabase-url <url>  Supabase project URL (used to construct DATABASE_URL)
-  --db-password <pwd>   Database password (used with --supabase-url)
-  -y, --non-interactive Skip confirmation prompts
-  -h, --help            Show this help message
+  --database-url <url>   Full PostgreSQL connection URL (includes password)
+  --project-ref <ref>    Supabase project ref (used to construct DATABASE_URL)
+  --db-password <pwd>    Database password (used with --project-ref)
+  -y, --non-interactive  Skip confirmation prompts
+  -h, --help             Show this help message
 
 Environment Variables:
-  DATABASE_URL          Full PostgreSQL connection URL (preferred)
-  SUPABASE_URL          Supabase project URL (fallback, requires DB_PASSWORD)
-  DB_PASSWORD           Database password (used with SUPABASE_URL)
+  DATABASE_URL           Full PostgreSQL connection URL (preferred)
+  SUPABASE_PROJECT_REF   Supabase project ref (fallback, requires DB_PASSWORD)
+  DB_PASSWORD            Database password (used with SUPABASE_PROJECT_REF)
 
 Connection Methods:
-  1. Provide DATABASE_URL directly (recommended):
-     DATABASE_URL=postgresql://postgres.xxx:[password]@aws-0-region.pooler.supabase.com:6543/postgres
+  1. Provide DATABASE_URL directly:
+     Find in Supabase Dashboard > Project Settings > Database > Connection string > URI
 
-  2. Provide SUPABASE_URL + DB_PASSWORD:
-     The CLI will construct the DATABASE_URL from your Supabase project URL.
+  2. Provide SUPABASE_PROJECT_REF + DB_PASSWORD:
+     Find project ref in Supabase Dashboard > Project Settings > General > Reference ID
+     Find password in Supabase Dashboard > Project Settings > Database > Database password
 
 Examples:
   # Interactive mode (prompts for credentials)
   npx @autoship/react init
 
   # With full database URL
-  npx @autoship/react init --database-url "postgresql://postgres.xxx:password@aws-0-region.pooler.supabase.com:6543/postgres"
+  npx @autoship/react init --database-url "postgresql://postgres:password@db.xxxx.supabase.co:5432/postgres"
 
-  # With Supabase URL + password
-  npx @autoship/react init --supabase-url https://xxx.supabase.co --db-password mypassword
+  # With project ref + password
+  npx @autoship/react init --project-ref abcdefghijklmnop --db-password mypassword
 
   # Using environment variables
   DATABASE_URL="postgresql://..." npx @autoship/react init
+  SUPABASE_PROJECT_REF="abcdefghijklmnop" DB_PASSWORD="mypassword" npx @autoship/react init
 `);
 }
 
@@ -164,31 +166,21 @@ async function promptSecret(rl: readline.Interface, question: string): Promise<s
 }
 
 /**
- * Constructs a DATABASE_URL from a Supabase project URL and password.
+ * Constructs a DATABASE_URL from a Supabase project ref and password.
  *
- * Supabase URL format: https://[project-ref].supabase.co
- * Database URL format: postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+ * Project ref: The unique identifier for your Supabase project (e.g., "abcdefghijklmnop")
+ * Database URL format: postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
  *
- * Note: We use the transaction pooler (port 6543) for compatibility.
- * The region is detected from the Supabase URL or defaults to us-east-1.
+ * Note: We use the direct connection (port 5432) instead of the pooler
+ * because the pooler requires region-specific endpoints.
  */
-function constructDatabaseUrl(supabaseUrl: string, password: string): string {
-  const url = new URL(supabaseUrl);
-  const hostname = url.hostname; // e.g., "xxx.supabase.co"
-  const projectRef = hostname.split(".")[0];
-
+function constructDatabaseUrl(projectRef: string, password: string): string {
   if (!projectRef) {
-    throw new Error("Could not extract project reference from Supabase URL");
+    throw new Error("Project ref is required");
   }
 
-  // Supabase uses different regional pooler endpoints
-  // Default to us-east-1, but this can be adjusted
-  // The actual region is embedded in the project, but we can't easily detect it
-  // Users can provide DATABASE_URL directly if they need a specific region
-  const region = "us-east-1";
-
   const encodedPassword = encodeURIComponent(password);
-  return `postgresql://postgres.${projectRef}:${encodedPassword}@aws-0-${region}.pooler.supabase.com:6543/postgres`;
+  return `postgresql://postgres:${encodedPassword}@db.${projectRef}.supabase.co:5432/postgres`;
 }
 
 async function getConnectionUrl(options: CliOptions): Promise<string> {
@@ -200,12 +192,12 @@ async function getConnectionUrl(options: CliOptions): Promise<string> {
     return databaseUrl;
   }
 
-  // Check for SUPABASE_URL + DB_PASSWORD combination
-  let supabaseUrl = options.supabaseUrl || process.env.SUPABASE_URL;
+  // Check for PROJECT_REF + DB_PASSWORD combination
+  let projectRef = options.projectRef || process.env.SUPABASE_PROJECT_REF;
   let dbPassword = options.dbPassword || process.env.DB_PASSWORD;
 
-  if (supabaseUrl && dbPassword) {
-    return constructDatabaseUrl(supabaseUrl, dbPassword);
+  if (projectRef && dbPassword) {
+    return constructDatabaseUrl(projectRef, dbPassword);
   }
 
   // Interactive mode
@@ -216,9 +208,9 @@ async function getConnectionUrl(options: CliOptions): Promise<string> {
     console.log("  This will create the required tables in your Supabase database.\n");
     console.log("  You can provide credentials in two ways:");
     console.log("    1. Full DATABASE_URL (includes password)");
-    console.log("    2. Supabase URL + database password\n");
+    console.log("    2. Supabase project ref + database password\n");
 
-    const choice = await prompt(rl, "  Enter (1) for DATABASE_URL or (2) for Supabase URL + password: ");
+    const choice = await prompt(rl, "  Enter (1) for DATABASE_URL or (2) for project ref + password: ");
 
     if (choice === "1") {
       console.log("\n  Find your DATABASE_URL in Supabase Dashboard:");
@@ -226,10 +218,12 @@ async function getConnectionUrl(options: CliOptions): Promise<string> {
       databaseUrl = await promptSecret(rl, "  DATABASE_URL: ");
       return databaseUrl;
     } else {
-      if (!supabaseUrl) {
-        supabaseUrl = await prompt(rl, "\n  Supabase URL (e.g., https://xxx.supabase.co): ");
+      if (!projectRef) {
+        console.log("\n  Find your project ref in Supabase Dashboard:");
+        console.log("    Project Settings > General > Reference ID\n");
+        projectRef = await prompt(rl, "  Project ref: ");
       } else {
-        console.log(`\n  Supabase URL: ${supabaseUrl}`);
+        console.log(`\n  Project ref: ${projectRef}`);
       }
 
       if (!dbPassword) {
@@ -238,7 +232,7 @@ async function getConnectionUrl(options: CliOptions): Promise<string> {
         dbPassword = await promptSecret(rl, "  Database password: ");
       }
 
-      return constructDatabaseUrl(supabaseUrl, dbPassword);
+      return constructDatabaseUrl(projectRef, dbPassword);
     }
   } finally {
     rl.close();
