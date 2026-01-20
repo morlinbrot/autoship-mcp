@@ -18,7 +18,7 @@ export function TaskDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !description.trim()) return;
+    if (!title.trim() || !description.trim() || !supabase) return;
 
     setIsSubmitting(true);
     try {

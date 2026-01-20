@@ -36,6 +36,11 @@ export function TaskList({ onBack }: TaskListProps): React.ReactElement {
   }, []);
 
   const loadTasks = async () => {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       // Fetch tasks with their related questions from task_questions table

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useAutoshipContext } from "./AutoshipProvider";
 import { TaskDialog } from "./TaskDialog";
 import { TaskList } from "./TaskList";
 
@@ -10,9 +11,15 @@ export interface AutoshipButtonProps {
 export function AutoshipButton({
   position = "bottom-right",
   showTaskList = true,
-}: AutoshipButtonProps): React.ReactElement {
+}: AutoshipButtonProps): React.ReactElement | null {
+  const { isConfigured } = useAutoshipContext();
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState<"menu" | "new" | "list">("menu");
+
+  // Don't render anything if Autoship is not configured
+  if (!isConfigured) {
+    return null;
+  }
 
   const positionStyles: Record<string, React.CSSProperties> = {
     "bottom-right": { bottom: 20, right: 20 },

@@ -21,7 +21,7 @@ export function QuestionDialog({
   const unansweredQuestions = questions.filter((q) => !q.answer);
 
   const handleSubmit = async () => {
-    if (Object.keys(answers).length === 0) return;
+    if (Object.keys(answers).length === 0 || !supabase) return;
 
     setIsSubmitting(true);
     try {

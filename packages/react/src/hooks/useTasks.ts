@@ -6,14 +6,20 @@ export interface UseTasksResult {
   tasks: Task[];
   loading: boolean;
   refresh: () => Promise<void>;
+  isConfigured: boolean;
 }
 
 export function useTasks(): UseTasksResult {
-  const { supabase, userId, schema } = useAutoshipContext();
+  const { supabase, userId, schema, isConfigured } = useAutoshipContext();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadTasks = useCallback(async () => {
+    if (!isConfigured || !supabase) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       let query = supabase
@@ -42,9 +48,13 @@ export function useTasks(): UseTasksResult {
     } finally {
       setLoading(false);
     }
-  }, [supabase, userId]);
+  }, [supabase, userId, isConfigured]);
 
   useEffect(() => {
+    if (!isConfigured || !supabase) {
+      return;
+    }
+
     loadTasks();
 
     // Subscribe to realtime updates
@@ -67,7 +77,7 @@ export function useTasks(): UseTasksResult {
     return () => {
       channel.unsubscribe();
     };
-  }, [supabase, userId, schema, loadTasks]);
+  }, [supabase, userId, schema, isConfigured, loadTasks]);
 
-  return { tasks, loading, refresh: loadTasks };
+  return { tasks, loading, refresh: loadTasks, isConfigured };
 }

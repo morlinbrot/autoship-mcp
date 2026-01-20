@@ -17,13 +17,17 @@ export interface SubmittedTask {
 }
 
 export function useAutoship() {
-  const { supabase, userId } = useAutoshipContext();
+  const { supabase, userId, isConfigured } = useAutoshipContext();
 
   const submitTask = async ({
     title,
     description,
     priority = 0,
   }: SubmitTaskOptions): Promise<SubmittedTask> => {
+    if (!isConfigured || !supabase) {
+      throw new Error("[Autoship] Cannot submit task: Autoship is not configured");
+    }
+
     const id = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const { data, error } = await supabase
@@ -43,5 +47,5 @@ export function useAutoship() {
     return data as SubmittedTask;
   };
 
-  return { submitTask };
+  return { submitTask, isConfigured };
 }
