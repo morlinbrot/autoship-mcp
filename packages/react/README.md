@@ -138,6 +138,33 @@ export SUPABASE_SERVICE_KEY="your-service-key"
 claude "Use the autoship-mcp tools to list pending tasks"
 ```
 
+## AI Prompt
+
+Use this prompt with an AI coding assistant (like Claude Code) to automatically set up Autoship in your project:
+
+```
+I want to add Autoship to this project - an autonomous coding agent that lets users submit tasks via React components and implements them via GitHub Actions.
+
+Please do the following:
+
+1. Install the package:
+   npm install @autoship/react
+
+2. Copy the required files from the Autoship repo (https://github.com/morlinbrot/autoship):
+   - Copy `mcp-servers/autoship-mcp/` directory to `mcp-servers/autoship-mcp/` in this project
+   - Copy `.github/workflows/claude-agent.yml` to `.github/workflows/claude-agent.yml`
+
+3. Find the main App component (or root layout) and integrate the Autoship components:
+   - Import AutoshipProvider and AutoshipButton from '@autoship/react'
+   - Wrap the app content with AutoshipProvider
+   - Add the AutoshipButton component inside the provider (it renders a floating button)
+
+I will take care of:
+- Running `npx @autoship/react init` to set up the database
+- Adding the autoship schema to Supabase's exposed schemas
+- Adding the required GitHub secrets (ANTHROPIC_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY)
+```
+
 ## Manual Trigger
 
 You can manually trigger the agent from the GitHub Actions tab, optionally with a custom prompt:

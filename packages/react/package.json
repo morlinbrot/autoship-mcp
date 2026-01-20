@@ -1,6 +1,16 @@
 {
   "name": "@autoship/react",
-  "version": "0.6.0",
+  "version": "0.6.1",
+  "description": "A drop-in autonomous coding agent that records tasks in your app and implements them in a GitHub Action",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/morlinbrot/autoship.git",
+    "directory": "packages/react"
+  },
+  "homepage": "https://github.com/morlinbrot/autoship#readme",
+  "bugs": {
+    "url": "https://github.com/morlinbrot/autoship/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

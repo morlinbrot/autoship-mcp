@@ -1,11 +1,19 @@
 {
-  "name": "autoship-mcp",
+  "name": "autoship",
   "version": "1.0.0",
-  "description": "Autonomous Claude agent with Supabase todo database via MCP",
-  "private": true,
+  "description": "A drop-in autonomous coding agent that records tasks in your app and implements them in a GitHub Action",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/morlinbrot/autoship.git"
+  },
+  "homepage": "https://github.com/morlinbrot/autoship#readme",
+  "bugs": {
+    "url": "https://github.com/morlinbrot/autoship/issues"
+  },
   "scripts": {
     "build:mcp": "cd mcp-servers/autoship-mcp && npm run build",
-    "start:mcp": "cd mcp-servers/autoship-mcp && npm start"
+    "build:react": "cd packages/react && npm run build",
+    "dev:demo": "cd demo && npm dev"
   },
   "keywords": [
     "claude",
