@@ -103,7 +103,15 @@ Available components:
 - `TaskDetailDialog` - View task details and answer questions
 - `QuestionDialog` - Answer clarifying questions from Claude
 
-### 5. Set Up GitHub Action
+### 5. Install Claude GitHub App
+
+Install the Claude GitHub App to allow the GitHub Action to run Claude Code:
+
+1. Go to https://github.com/apps/claude
+2. Click "Install" and select your repository
+3. Grant the required permissions
+
+### 6. Set Up GitHub Action
 
 Copy these files into your project:
 
@@ -121,7 +129,7 @@ Add GitHub Secrets (Settings > Secrets and variables > Actions):
 | `SUPABASE_URL`         | Your Supabase project URL (e.g., `https://xxx.supabase.co`) |
 | `SUPABASE_SERVICE_KEY` | Supabase service role key (not the anon key)                |
 
-### 6. Test Locally (Optional)
+### 7. Test Locally (Optional)
 
 Build the MCP server:
 
